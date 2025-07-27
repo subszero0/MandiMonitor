@@ -1,0 +1,1 @@
+"""MandiMonitor Telegram Bot package.""" 
