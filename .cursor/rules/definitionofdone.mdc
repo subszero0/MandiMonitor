@@ -1,0 +1,4 @@
+---
+description: - Code compiles with **`ruff --select all`** and **`black --check`**. - **Pytest** suite passes with `-q` (quiet) flag. - `docker compose up` starts all services and `/health` returns `{"status":"ok"}`. - New functionality is covered by at least one **unit test** and (where relevant) an **integration test** hitting the Dockerised stack.
+alwaysApply: false
+---

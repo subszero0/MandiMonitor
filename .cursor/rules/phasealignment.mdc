@@ -1,0 +1,4 @@
+---
+description: - Follow the **Phase 0-11 roadmap** in `todo.md`; always pick the **next incomplete bullet** first.:contentReference[oaicite:19]{index=19} - Keep artefacts under the folders and filenames defined in `repo_scaffold.md`; don’t invent new top-level dirs.:contentReference[oaicite:20]{index=20}
+alwaysApply: false
+---

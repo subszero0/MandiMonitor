@@ -1,7 +1,7 @@
 """Configuration management for MandiMonitor Bot."""
 
-import os
 from pydantic import BaseSettings
+
 
 class Settings(BaseSettings):
     TELEGRAM_TOKEN: str
@@ -13,4 +13,5 @@ class Settings(BaseSettings):
     SENTRY_DSN: str | None = None
     TIMEZONE: str = "Asia/Kolkata"
 
-settings = Settings(_env_file=".env") 
+
+settings = Settings(_env_file=".env")

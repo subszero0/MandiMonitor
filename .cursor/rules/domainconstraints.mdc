@@ -1,0 +1,4 @@
+---
+description: - All timestamps, schedulers and cron examples default to **Asia/Kolkata** (`UTC+05:30`). - **No user authentication** is required for MVP features unless the task list says otherwise.:contentReference[oaicite:12]{index=12} - Use **SQLite + SQLModel** during MVP; Postgres is a stretch goal only.
+alwaysApply: false
+---

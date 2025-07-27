@@ -1,0 +1,4 @@
+---
+description: - **APScheduler** is the only background job runner; jobs must be idempotent and re-entrant. - **Amazon PA-API** is the first choice for price data; **Playwright** only as throttle fallback, cached 24 h.:contentReference[oaicite:21]{index=21} - Build Telegram carousel cards exactly as per PRD mock-up.:contentReference[oaicite:22]{index=22}
+alwaysApply: false
+---

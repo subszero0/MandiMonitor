@@ -1,0 +1,4 @@
+---
+description: - Images are built with the **multi-stage Dockerfile** scaffold; final stage runs `python -m bot.main`.:contentReference[oaicite:23]{index=23} - Local dev uses `docker compose` (not the legacy `docker-compose` alias).:contentReference[oaicite:16]{index=16} - GitHub Actions workflow must fail fast if **pytest** or **ruff/black** lint fails, before pushing to ECR.
+alwaysApply: false
+---
