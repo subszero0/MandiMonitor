@@ -14,4 +14,4 @@ Telegram bot that hunts India-specific e-commerce deals and pings you when price
    docker compose up
    ```
 
-Fill with setup instructions after first successful run. 
+Fill with setup instructions after first successful run.
