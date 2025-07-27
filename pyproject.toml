@@ -14,6 +14,7 @@ playwright = "^1.45.0"
 Flask = "^3.0"
 sentry-sdk = "^2.0.0"
 uvicorn = "^0.29.0"
+pydantic-settings = "^2.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
