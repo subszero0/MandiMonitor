@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Env & secrets
+.env
+
+# Docker
+*.log 
