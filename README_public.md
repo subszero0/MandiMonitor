@@ -35,6 +35,11 @@ A Telegram bot for monitoring product prices and deals.
    poetry run python -m bot.main
    ```
 
+4. Access admin interface:
+   ```bash
+   FLASK_APP=bot.admin_app flask run
+   ```
+
 ## Docker Deployment
 
 ```bash

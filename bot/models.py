@@ -42,6 +42,7 @@ class Price(SQLModel, table=True):
     watch_id: int = Field(foreign_key="watch.id")
     asin: str
     price: int
+    source: str = Field(default="paapi")  # "paapi" or "scraper"
     fetched_at: datetime = Field(default_factory=datetime.utcnow)
 
 
