@@ -64,19 +64,19 @@
 
 ---
 
-## 💬 Phase 4 — Watch Creation Flow (Day 7‑9)
+## 💬 Phase 4 — Watch Creation Flow (Day 7‑9) ✅ **COMPLETED (2025-07-30)**
 
-- **T4‑1 Regex patterns file**  
-  - Patterns for brand, size (inch), "under <price>", "% discount"
-- **T4‑2 Inline button helpers**  
-  - `build_brand_buttons(list)`; `build_discount_buttons()`
-- **T4‑3 `/watch` handler**  
+- **T4‑1 Regex patterns file** ✅  
+  - Created `bot/patterns.py` with ASIN, brand, price, discount regex patterns
+- **T4‑2 Inline button helpers** ✅  
+  - Implemented `build_brand_buttons()`, `build_discount_buttons()`, `build_price_buttons()`
+- **T4‑3 `/watch` handler** ✅  
   - Parse free text → missing fields? → send buttons  
   - On completion → insert into `Watch` + invoke immediate price fetch (Phase 2 funcs)
-- **T4‑4 Immediate mini‑carousel**  
-  - Compose single card; send photo+caption+Buy Now button
-- **T4‑5 Error paths**  
-  - If ASIN lookup fails → politely ask for clearer phrase
+- **T4‑4 Immediate mini‑carousel** ✅  
+  - Compose single card; send photo+caption+Buy Now button with affiliate links
+- **T4‑5 Error paths** ✅  
+  - Graceful fallbacks when ASIN lookup fails → polite user feedback
 
 ---
 
