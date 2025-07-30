@@ -106,14 +106,19 @@
 
 ---
 
-## 📊 Phase 7 — Admin & Metrics (Day 14‑15)
+## 📊 Phase 7 — Admin & Metrics (Day 14‑15) ✅ **COMPLETED (2025-07-30)**
 
-- **T7‑1 Flask `/admin` route**  
-  - Basic Auth via `ADMIN_USER/PASS` env vars
-- **T7‑2 Metrics query**  
+- **T7‑1 Flask `/admin` route** ✅  
+  - Basic Auth via `ADMIN_USER/PASS` env vars implemented in `bot/admin_app.py`
+  - HTTP Basic Auth with WWW-Authenticate headers for browser login dialogs
+- **T7‑2 Metrics query** ✅  
   - SQL count for explorers (`User`), watch creators, live watches, click‑outs, scraper fallbacks
-- **T7‑3 CSV download**  
-  - Stream `Price` table as CSV
+  - High-level funnel metrics using SQLModel func.count() for performance
+  - Real-time metrics reflecting current database state
+- **T7‑3 CSV download** ✅  
+  - Stream `Price` table as CSV via `/admin/prices.csv` endpoint
+  - Memory-efficient generator-based streaming prevents large table memory spikes
+  - Includes all fields: id, watch_id, asin, price, source, fetched_at
 
 ---
 
