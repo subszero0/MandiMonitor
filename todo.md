@@ -122,13 +122,21 @@
 
 ---
 
-## 🔒 Phase 8 — Monitoring & Back‑ups (Day 15)
+## 🔒 Phase 8 — Monitoring & Back‑ups (Day 15) ✅ **COMPLETED (2025-07-30)**
 
-- **T8‑1 Sentry setup** (`sentry_sdk.init(dsn, traces_sample_rate=1.0)`)  
-- **T8‑2 /health integration**  
-  - Register URL with UptimeRobot free plan
-- **T8‑3 Backup cron script**  
-  - Write shell script; `crontab -e` → `0 2 * * * /home/ubuntu/backup_db.sh`
+- **T8‑1 Sentry setup** ✅  
+  - `sentry_sdk.init(dsn, traces_sample_rate=1.0)` in `bot/monitoring.py`
+  - Conditional initialization only when `SENTRY_DSN` is configured
+  - Global activation via import in `bot/__init__.py` for CLI, tests, and WSGI
+- **T8‑2 /health integration** ✅  
+  - Lightweight `/health` endpoint in `admin_app.py` (no auth, no DB access)
+  - Returns `200 OK "ok"` for UptimeRobot keyword monitoring
+  - Sub-100ms latency guaranteed for uptime monitoring
+- **T8‑3 Backup cron script** ✅  
+  - `scripts/backup_db.sh` with nightly SQLite backup and 30-day retention
+  - Date-stamped files in `/home/ubuntu/backups/`
+  - Error-safe with `set -euo pipefail` and automatic cleanup
+  - Cron setup: `0 2 * * * /home/ubuntu/scripts/backup_db.sh`
 
 ---
 
