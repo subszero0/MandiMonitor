@@ -20,6 +20,7 @@ class TestWatchFlow:
         update.message = MagicMock(spec=Message)
         update.message.message_id = 1
         update.message.reply_text = AsyncMock()
+        update.effective_message = update.message
         return update
 
     @pytest.fixture
@@ -37,6 +38,8 @@ class TestWatchFlow:
         mock_update.callback_query.answer = AsyncMock()
         mock_update.callback_query.edit_message_text = AsyncMock()
         mock_update.callback_query.data = "test:value"
+        mock_update.effective_message = MagicMock()
+        mock_update.effective_message.reply_text = AsyncMock()
         return mock_update
 
     @pytest.mark.asyncio
@@ -90,11 +93,10 @@ class TestWatchFlow:
             "bot.watch_flow.validate_watch_data"
         ) as mock_validate, patch("bot.watch_flow._ask_for_missing_field") as mock_ask:
 
+            # Return parsed data that's missing discount and price (keys not present)
             mock_parse.return_value = {
                 "brand": "samsung",
-                "max_price": None,
-                "min_discount": None,
-                "keywords": "Samsung mobile",
+                "keywords": "Samsung mobile", 
                 "asin": None,
             }
             mock_validate.return_value = {}
@@ -110,11 +112,10 @@ class TestWatchFlow:
     ):
         """Test discount selection callback."""
         mock_callback_update.callback_query.data = "disc:15"
+        # Set up context with missing price only 
         mock_context.user_data = {
             "pending_watch": {
                 "brand": "samsung",
-                "max_price": None,
-                "min_discount": None,
                 "keywords": "Samsung mobile",
                 "asin": None,
             }
@@ -133,10 +134,10 @@ class TestWatchFlow:
     async def test_callback_discount_skip(self, mock_callback_update, mock_context):
         """Test skipping discount selection."""
         mock_callback_update.callback_query.data = "disc:skip"
+        # Set up context with missing price only
         mock_context.user_data = {
             "pending_watch": {
-                "brand": "samsung",
-                "max_price": None,
+                "brand": "samsung", 
                 "keywords": "Samsung mobile",
                 "asin": None,
             }
@@ -255,34 +256,40 @@ class TestWatchFlow:
 
     def test_permutation_matrix(self):
         """Test all possible field combinations for completeness."""
-        # All possible combinations of brand, discount, price (present/missing)
-        permutations = [
-            # (brand, discount, price, expected_missing_fields)
-            ("samsung", 10, 25000, []),  # All present
-            ("samsung", 10, None, ["price"]),  # Missing price
-            ("samsung", None, 25000, ["discount"]),  # Missing discount
-            ("samsung", None, None, ["discount", "price"]),  # Missing both
-            (None, 10, 25000, ["brand"]),  # Missing brand
-            (None, 10, None, ["brand", "price"]),  # Missing brand & price
-            (None, None, 25000, ["brand", "discount"]),  # Missing brand & discount
-            (None, None, None, ["brand", "discount", "price"]),  # Missing all
+        # Test scenarios: value=present, None=explicitly skipped, missing=not in dict
+        test_cases = [
+            # (parsed_data, expected_missing_fields)
+            (
+                {"brand": "samsung", "min_discount": 10, "max_price": 25000, "keywords": "test", "asin": None},
+                []  # All present
+            ),
+            (
+                {"brand": "samsung", "min_discount": 10, "keywords": "test", "asin": None}, 
+                ["price"]  # Missing max_price key
+            ),
+            (
+                {"brand": "samsung", "max_price": 25000, "keywords": "test", "asin": None},
+                ["discount"]  # Missing min_discount key  
+            ),
+            (
+                {"brand": "samsung", "keywords": "test", "asin": None},
+                ["discount", "price"]  # Missing both keys
+            ),
+            (
+                {"min_discount": 10, "max_price": 25000, "keywords": "test", "asin": None},
+                ["brand"]  # Missing brand key
+            ),
+            (
+                {"brand": "samsung", "min_discount": None, "max_price": 25000, "keywords": "test", "asin": None},
+                []  # discount explicitly skipped (None but key present)
+            ),
+            (
+                {"brand": "samsung", "min_discount": 10, "max_price": None, "keywords": "test", "asin": None},
+                []  # price explicitly skipped (None but key present) 
+            ),
         ]
 
-        for brand, discount, price, expected_missing in permutations:
-            parsed_data = {
-                "brand": brand,
-                "min_discount": discount,
-                "max_price": price,
-                "keywords": "test product",
-                "asin": None,
-            }
-
-            # Add keys for fields that are explicitly set (including None for skipped)
-            if discount is not None or brand is not None:
-                parsed_data["min_discount"] = discount
-            if price is not None or brand is not None:
-                parsed_data["max_price"] = price
-
+        for parsed_data, expected_missing in test_cases:
             missing_fields = []
             if parsed_data.get("brand") is None and "brand" not in parsed_data:
                 missing_fields.append("brand")
@@ -296,4 +303,4 @@ class TestWatchFlow:
 
             assert (
                 missing_fields == expected_missing
-            ), f"Failed for {brand}, {discount}, {price}"
+            ), f"Failed for {parsed_data}: expected {expected_missing}, got {missing_fields}"
