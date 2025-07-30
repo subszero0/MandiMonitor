@@ -40,6 +40,15 @@ def _check_auth() -> None:
         abort(401)
 
 
+# --- Health route (no auth) -----------------------------------------------
+
+
+@app.get("/health")
+def health() -> str:  # nosec B701
+    """Health check endpoint for uptime monitoring."""
+    return "ok", 200
+
+
 # --- Metrics route ---------------------------------------------------------
 
 

@@ -52,6 +52,20 @@ docker compose up --build
 poetry run pytest
 ```
 
+## Monitoring & Back-ups
+
+Set up nightly database backups with cron:
+
+```bash
+# cron
+0 2 * * * /home/ubuntu/scripts/backup_db.sh
+```
+
+Health endpoint for uptime monitoring:
+- GET `/health` returns `200 OK "ok"`
+- No authentication required
+- Lightweight (no database access)
+
 ## License
 
 MIT License - see LICENSE file for details.
