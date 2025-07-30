@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import base64
-import csv
-import io
 from typing import Dict
 
 from flask import Flask, Response, request, abort
@@ -59,23 +57,21 @@ def metrics() -> Dict[str, int]:
     with Session(engine) as s:
         # Count total users (explorers)
         explorers = s.exec(select(func.count(User.id))).one()
-        
+
         # Count users who have created at least one watch
-        watch_creators = s.exec(
-            select(func.count(func.distinct(Watch.user_id)))
-        ).one()
-        
+        watch_creators = s.exec(select(func.count(func.distinct(Watch.user_id)))).one()
+
         # Count total watches
         live_watches = s.exec(select(func.count(Watch.id))).one()
-        
+
         # Count total click-outs
         click_outs = s.exec(select(func.count(Click.id))).one()
-        
+
         # Count scraper fallbacks
         scraper_fallbacks = s.exec(
             select(func.count(Price.id)).where(Price.source == "scraper")
         ).one()
-        
+
         return {
             "explorers": explorers,
             "watch_creators": watch_creators,
@@ -92,13 +88,13 @@ def metrics() -> Dict[str, int]:
 def prices_csv() -> Response:
     """Stream all price history as CSV."""
     _check_auth()
-    
+
     def _generate():
         with Session(engine) as s:
             yield "id,watch_id,asin,price,source,fetched_at\n"
             for row in s.exec(select(Price)):
                 yield f"{row.id},{row.watch_id},{row.asin},{row.price},{row.source},{row.fetched_at.isoformat()}\n"
-    
+
     return Response(_generate(), mimetype="text/csv")
 
 

@@ -140,15 +140,23 @@
 
 ---
 
-## 📦 Phase 9 — Docker & CI/CD (Day 16‑18)
+## 📦 Phase 9 — Docker & CI/CD (Day 16‑18) ✅ **COMPLETED (2025-07-30)**
 
-- **T9‑1 Dockerfile finalise**  
-  - Multi‑stage build (build then slim run)  
-  - Entrypoint `uvicorn bot.main:app --port 8000`
-- **T9‑2 compose file**  
-  - Define services: bot, cloudflared (tunnel), cron container (optional)
-- **T9‑3 GitHub Actions workflow**  
-  - Trigger on push → build image → push to ECR → SSH to Lightsail → `docker compose pull && up -d`
+- **T9‑1 Dockerfile finalise** ✅  
+  - Production multi-stage build (builder + slim runtime layers)
+  - Final image size: 136MB (well under 250MB requirement)
+  - Optimized with Poetry dependency management and layer caching
+  - Entrypoint runs `python -m bot.main` for Telegram polling + Flask health server
+- **T9‑2 compose file** ✅  
+  - Three-service stack: bot, cloudflared tunnel, and Alpine cron container
+  - Bot service with health endpoint on port 8000 and database volume mounting
+  - Cloudflare tunnel service for secure public access (requires TUNNEL_TOKEN)
+  - Cron container for nightly SQLite backups with 30-day retention
+- **T9‑3 GitHub Actions workflow** ✅  
+  - End-to-end CI/CD pipeline with testing, building, and deployment
+  - Automated: test (ruff+black+pytest) → build image → push to ECR → SSH deploy to Lightsail
+  - Health check validation after deployment ensures successful container startup
+  - Requires 7 GitHub secrets for AWS and Lightsail access
 
 ---
 
