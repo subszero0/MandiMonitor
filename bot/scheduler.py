@@ -60,7 +60,7 @@ def realtime_job(watch_id: int) -> None:
         # store price history
         s.add(Price(watch_id=watch.id, asin=watch.asin, price=price, source="paapi"))
         s.commit()
-        _send_single_card(watch.user_id, watch.keywords, price, watch.asin)
+        _send_single_card(watch.user_id, watch.keywords, price, watch.asin, watch.id)
 
 
 def digest_job(user_id: int) -> None:
@@ -81,6 +81,7 @@ def digest_job(user_id: int) -> None:
                     price,
                     "https://m.media-amazon.com/images/I/81.png",
                     watch.asin,
+                    watch.id,
                 )
                 cards.append(
                     ("https://m.media-amazon.com/images/I/81.png", caption, kb)
@@ -96,12 +97,14 @@ def digest_job(user_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _send_single_card(user_id: int, title: str, price: int, asin: str) -> None:
+def _send_single_card(
+    user_id: int, title: str, price: int, asin: str, watch_id: int
+) -> None:
     from telegram import Bot  # local import to avoid circulars at boot
 
     bot = Bot(token=settings.TELEGRAM_TOKEN)
     cap, kb = build_single_card(
-        title, price, "https://m.media-amazon.com/images/I/81.png", asin
+        title, price, "https://m.media-amazon.com/images/I/81.png", asin, watch_id
     )
     bot.send_photo(
         chat_id=user_id,

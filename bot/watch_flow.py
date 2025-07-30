@@ -311,6 +311,7 @@ async def _finalize_watch(
                 price=price,
                 image=image_url,
                 asin=watch_data["asin"],
+                watch_id=watch.id,
             )
 
             await update.effective_message.reply_photo(

@@ -155,6 +155,42 @@ Built with ❤️ for deal hunters!
     await update.message.reply_text(about_msg, parse_mode="Markdown")
 
 
+async def click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle click-out tracking for affiliate links.
+
+    Args:
+    ----
+        update: Telegram update object with callback query
+        context: Bot context
+
+    """
+    from sqlmodel import Session
+    from .cache_service import engine
+    from .models import Click
+    from .affiliate import build_affiliate_url
+
+    query = update.callback_query
+    await query.answer()
+
+    # Parse callback data: "click:watch_id:asin"
+    try:
+        _, watch_id_str, asin = query.data.split(":", 2)
+        watch_id = int(watch_id_str)
+    except (ValueError, IndexError):
+        await query.edit_message_text("❌ Invalid link. Please try again.")
+        return
+
+    # Log the click
+    with Session(engine) as session:
+        click = Click(watch_id=watch_id, asin=asin)
+        session.add(click)
+        session.commit()
+
+    # Redirect to affiliate URL with cache_time=0
+    affiliate_url = build_affiliate_url(asin)
+    await query.answer(url=affiliate_url, cache_time=0)
+
+
 def setup_handlers(app) -> None:
     """Set up all Telegram bot command handlers.
 
@@ -177,6 +213,11 @@ def setup_handlers(app) -> None:
         CallbackQueryHandler(handle_callback, pattern="^(brand:|disc:|price:)")
     )
 
+    # Register click handler for affiliate link tracking
+    app.add_handler(
+        CallbackQueryHandler(click_handler, pattern=r"^click:\d+:[A-Z0-9]+$")
+    )
+
     logger.info(
-        "Telegram handlers registered: /start, /watch, /help, /status, /about, callbacks"
+        "Telegram handlers registered: /start, /watch, /help, /status, /about, callbacks, click_handler"
     )

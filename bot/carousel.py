@@ -18,9 +18,9 @@ def build_carousel(products: list) -> list:
 
 
 def build_single_card(
-    title: str, price: int, image: str, asin: str
+    title: str, price: int, image: str, asin: str, watch_id: int
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """Build a single product card with caption and buy button.
+    """Build a single product card with caption and callback buy button.
 
     Args:
     ----
@@ -28,6 +28,7 @@ def build_single_card(
         price: Current price in rupees
         image: Product image URL
         asin: Amazon ASIN for affiliate link
+        watch_id: Watch ID for click tracking
 
     Returns:
     -------
@@ -37,15 +38,14 @@ def build_single_card(
     # Build caption with price formatting
     caption = f"📱 {title}\n💰 ₹{price:,}\n\n🔥 Current best price!"
 
-    # Build affiliate URL with proper Amazon affiliate tag
-    affiliate_url = (
-        f"https://www.amazon.in/dp/{asin}?tag=YOURTAG-21&linkCode=ogi&th=1&psc=1"
-    )
-
-    # Create buy button keyboard
+    # Create buy button with callback data for click tracking
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(text="🛒 BUY NOW", url=affiliate_url)],
+            [
+                InlineKeyboardButton(
+                    text="🛒 BUY NOW", callback_data=f"click:{watch_id}:{asin}"
+                )
+            ],
         ]
     )
 
@@ -59,6 +59,7 @@ def build_deal_card(
     discount_percent: int,
     image: str,
     asin: str,
+    watch_id: int,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Build a deal card showing discount information.
 
@@ -70,6 +71,7 @@ def build_deal_card(
         discount_percent: Discount percentage
         image: Product image URL
         asin: Amazon ASIN for affiliate link
+        watch_id: Watch ID for click tracking
 
     Returns:
     -------
@@ -86,15 +88,14 @@ def build_deal_card(
         f"⚡ Limited time offer!"
     )
 
-    # Build affiliate URL
-    affiliate_url = (
-        f"https://www.amazon.in/dp/{asin}?tag=YOURTAG-21&linkCode=ogi&th=1&psc=1"
-    )
-
-    # Create buy button keyboard
+    # Create buy button with callback data for click tracking
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(text="🛒 BUY NOW", url=affiliate_url)],
+            [
+                InlineKeyboardButton(
+                    text="🛒 BUY NOW", callback_data=f"click:{watch_id}:{asin}"
+                )
+            ],
         ]
     )
 
