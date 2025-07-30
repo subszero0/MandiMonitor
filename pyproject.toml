@@ -3,6 +3,7 @@ name = "mandi-monitor-bot"
 version = "0.1.0"
 description = "Telegram bot that alerts Indian shoppers on deep discounts."
 authors = ["Your Name <you@example.com>"]
+packages = [{include = "bot"}]
 
 [tool.poetry.dependencies]
 python = "^3.12"

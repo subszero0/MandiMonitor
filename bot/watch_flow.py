@@ -249,6 +249,11 @@ async def _finalize_watch(
         session.refresh(watch)
         log.info("Created watch %s for user %s", watch.id, user_id)
 
+        # Schedule the watch for monitoring
+        from .scheduler import schedule_watch
+
+        schedule_watch(watch)
+
     # Send confirmation message
     confirmation = (
         f"✅ *Watch created successfully!*\n\n"

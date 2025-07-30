@@ -80,16 +80,16 @@
 
 ---
 
-## ⏰ Phase 5 — Schedulers (Day 10‑12)
+## ⏰ Phase 5 — Schedulers (Day 10‑12) ✅ **COMPLETED (2025-07-30)**
 
-- **T5‑1 Add APScheduler**  
-  - `BackgroundScheduler()` singleton
-- **T5‑2 Daily job creator**  
-  - For each watch where `mode='daily'`, schedule at user‑selected time
-- **T5‑3 Real‑time job creator**  
-  - 10‑min polling; mute via scheduler pause between 23:00–08:00 IST
-- **T5‑4 Digest builder**  
-  - Query price history → pick best 5 by discount → build 5‑card carousel
+- **T5‑1 Add APScheduler** ✅  
+  - `BackgroundScheduler()` singleton implemented with timezone support
+- **T5‑2 Daily job creator** ✅  
+  - For each watch where `mode='daily'`, schedule at 09:00 IST using CronTrigger
+- **T5‑3 Real‑time job creator** ✅  
+  - 10‑min polling using IntervalTrigger; respects quiet hours 23:00–08:00 IST
+- **T5‑4 Digest builder** ✅  
+  - Query price history → pick best 5 by discount → build carousel cards and send via Telegram
 
 ---
 
