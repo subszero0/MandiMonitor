@@ -93,13 +93,16 @@
 
 ---
 
-## 🔗 Phase 6 — Affiliate Deep Links (Day 13)
+## 🔗 Phase 6 — Affiliate Deep Links (Day 13) ✅ **COMPLETED (2025-07-30)**
 
-- **T6‑1 Helper `build_affiliate_url(asin)`**  
-  - Append `?tag={{YOURTAG}}`  
-  - Add `&linkCode=ogi&th=1&psc=1` for reliability
-- **T6‑2 Track click‑outs**  
-  - Inline button callback logs `Click` row before redirecting
+- **T6‑1 Helper `build_affiliate_url(asin)`** ✅  
+  - `bot/affiliate.py` with proper tag handling using `settings.PAAPI_TAG`  
+  - Append `?tag={{YOURTAG-21}}` with `&linkCode=ogi&th=1&psc=1` parameters
+- **T6‑2 Track click‑outs** ✅  
+  - Callback buttons with `click:{watch_id}:{asin}` format instead of direct URLs
+  - `click_handler()` logs `Click` model entries before redirecting with `cache_time=0`
+  - Updated all `build_single_card()` calls to include `watch_id` parameter
+  - Comprehensive test suite with 5 tests covering URL generation and click tracking
 
 ---
 
