@@ -191,9 +191,11 @@ async def click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await query.answer(url=affiliate_url, cache_time=0)
 
 
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_text_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle free text messages as watch creation input.
-    
+
     Args:
     ----
         update: Telegram update object
@@ -201,16 +203,17 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     """
     # Treat free text as watch creation input
     text = update.message.text.strip()
-    
+
     # Ignore empty messages or messages that look like commands
-    if not text or text.startswith('/'):
+    if not text or text.startswith("/"):
         return
-        
+
     # Convert the text message into a /watch command format
     context.args = text.split()
-    
+
     # Import and call the watch creation handler
     from .watch_flow import start_watch
+
     await start_watch(update, context)
 
 
@@ -240,10 +243,13 @@ def setup_handlers(app) -> None:
     app.add_handler(
         CallbackQueryHandler(click_handler, pattern=r"^click:\d+:[A-Z0-9]+$")
     )
-    
+
     # Register message handler for free text (should be last to avoid conflicts)
     from telegram.ext import MessageHandler, filters
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
+    )
 
     logger.info(
         "Telegram handlers registered: /start, /watch, /help, /status, /about, callbacks, click_handler, text_messages"
