@@ -7,4 +7,24 @@ __pycache__/
 .env
 
 # Docker
-*.log 
+*.log
+
+# Sensitive Documentation (Private)
+README.md
+Security_Features.md
+todo.md
+security_audit_todo.md
+prd.md
+repo_scaffold.md
+Public_Private_Docs.md
+# Note: README_public.md can be renamed to README.md when ready for public release
+
+# Database & Backups
+dealbot.db
+backups/
+
+# Development artifacts
+debug/
+docs/
+*.sbom.*
+.cursor/ 

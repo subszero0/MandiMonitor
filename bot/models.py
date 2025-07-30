@@ -1,7 +1,8 @@
 """SQLModel ORM classes for MandiMonitor Bot."""
 
 from datetime import datetime
-from sqlmodel import SQLModel, Field
+
+from sqlmodel import Field, SQLModel
 
 
 class Cache(SQLModel, table=True):
@@ -25,8 +26,12 @@ class Watch(SQLModel, table=True):
 
     id: int = Field(primary_key=True)
     user_id: int = Field(foreign_key="user.id")
-    asin: str
-    keywords: str | None = None
+    asin: str | None = None
+    keywords: str
+    brand: str | None = None
+    max_price: int | None = None
+    min_discount: int | None = None
+    mode: str = Field(default="daily")  # "daily" or "rt" for real-time
     created: datetime = Field(default_factory=datetime.utcnow)
 
 

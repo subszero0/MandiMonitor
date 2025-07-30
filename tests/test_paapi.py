@@ -3,4 +3,3 @@
 
 def test_get_item():
     """Test PA-API item fetching."""
-    pass

@@ -4,7 +4,8 @@
 def create_admin_app():
     """Create Flask admin application.
 
-    Returns:
+    Returns
+    -------
         Flask app instance with admin routes
+
     """
-    pass

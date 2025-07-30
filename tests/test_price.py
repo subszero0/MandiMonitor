@@ -1,20 +1,22 @@
 """Tests for price fetching system."""
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from sqlmodel import Session, create_engine
 
 from bot.cache_service import get_price
-from bot.models import Cache
 from bot.errors import QuotaExceededError
+from bot.models import Cache
 
 
-@pytest.fixture
+@pytest.fixture()
 def in_memory_db():
     """Create in-memory SQLite database for testing."""
     engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
     )
 
     # Patch the engine in cache_service
@@ -35,7 +37,8 @@ def test_get_price_from_paapi(in_memory_db):
     }
 
     with patch(
-        "bot.cache_service.get_item", new=AsyncMock(return_value=mock_item_data)
+        "bot.cache_service.get_item",
+        new=AsyncMock(return_value=mock_item_data),
     ):
         price = get_price("B0ABC123")
         assert price == 12300
@@ -44,7 +47,8 @@ def test_get_price_from_paapi(in_memory_db):
 def test_get_price_fallback_to_scraper(in_memory_db):
     """Test fallback to scraper when PA-API fails."""
     with patch(
-        "bot.cache_service.get_item", new=AsyncMock(side_effect=QuotaExceededError())
+        "bot.cache_service.get_item",
+        new=AsyncMock(side_effect=QuotaExceededError()),
     ):
         with patch("bot.cache_service.scrape_price", return_value=15600):
             price = get_price("B0ABC123")
@@ -85,7 +89,8 @@ def test_get_price_cache_expired(in_memory_db):
     mock_item_data = {"price": 19000, "title": "Updated Product", "image": "url"}
 
     with patch(
-        "bot.cache_service.get_item", new=AsyncMock(return_value=mock_item_data)
+        "bot.cache_service.get_item",
+        new=AsyncMock(return_value=mock_item_data),
     ):
         price = get_price("B0EXPIRED")
         assert price == 19000
@@ -108,7 +113,8 @@ def test_get_price_all_sources_fail_with_stale_cache(in_memory_db):
         new=AsyncMock(side_effect=Exception("PA-API down")),
     ):
         with patch(
-            "bot.cache_service.scrape_price", side_effect=Exception("Scraper failed")
+            "bot.cache_service.scrape_price",
+            side_effect=Exception("Scraper failed"),
         ):
             price = get_price("B0STALE")
             assert price == 25000
@@ -121,7 +127,8 @@ def test_get_price_all_sources_fail_no_cache(in_memory_db):
         new=AsyncMock(side_effect=Exception("PA-API down")),
     ):
         with patch(
-            "bot.cache_service.scrape_price", side_effect=Exception("Scraper failed")
+            "bot.cache_service.scrape_price",
+            side_effect=Exception("Scraper failed"),
         ):
             with pytest.raises(ValueError, match="Could not fetch price"):
                 get_price("B0NOTFOUND")

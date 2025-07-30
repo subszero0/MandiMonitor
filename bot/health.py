@@ -9,7 +9,9 @@ app = Flask(__name__)
 def health():
     """Health check endpoint for monitoring and load balancers.
 
-    Returns:
+    Returns
+    -------
         JSON response with status indicator
+
     """
     return jsonify(status="ok")

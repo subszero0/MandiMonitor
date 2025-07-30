@@ -2,6 +2,7 @@
 
 from logging import getLogger
 from pathlib import Path
+
 from playwright.sync_api import sync_playwright
 
 log = getLogger(__name__)
@@ -11,13 +12,17 @@ def scrape_price(asin: str) -> int:
     """Scrape product price from Amazon page using Playwright.
 
     Args:
+    ----
         asin: Amazon Standard Identification Number
 
     Returns:
+    -------
         Price in paise (integer)
 
     Raises:
+    ------
         ValueError: If price cannot be extracted
+
     """
     url = f"https://www.amazon.in/dp/{asin}"
 
@@ -25,7 +30,7 @@ def scrape_price(asin: str) -> int:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             page = browser.new_page(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             )
 
             log.info("Scraping price for ASIN %s from %s", asin, url)
@@ -71,7 +76,7 @@ def scrape_price(asin: str) -> int:
                 return int(price_float * 100)
             except (ValueError, TypeError) as e:
                 raise ValueError(
-                    f"Could not parse price '{price_text}' for ASIN: {asin}"
+                    f"Could not parse price '{price_text}' for ASIN: {asin}",
                 ) from e
 
     except Exception as e:

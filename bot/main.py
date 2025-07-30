@@ -2,15 +2,17 @@
 
 import logging
 from threading import Thread
+
 from telegram.ext import ApplicationBuilder
 
+from bot import health
 from bot.config import settings
 from bot.handlers import setup_handlers
-from bot import health
 
 # Configure logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 

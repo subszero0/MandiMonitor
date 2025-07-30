@@ -253,7 +253,6 @@ We use multiple layers of security, so if one layer fails, others still protect 
 - **Infrastructure testing** - Validates firewall rules and security configurations
 
 ### **Manual Security Reviews:**
-- **Code review requirements** - All changes must be reviewed by another developer
 - **Security architecture reviews** - Regular evaluation of security design
 - **Incident response testing** - Regular drills to ensure our procedures work
 
@@ -290,6 +289,6 @@ We use multiple layers of security, so if one layer fails, others still protect 
 
 ---
 
-*This document is regularly updated to reflect our current security posture. Last updated: January 2025*
+*This document is regularly updated to reflect our current security posture. Last updated: July 2025*
 
 **Questions about our security?** Contact us at security@mandimonitor.app

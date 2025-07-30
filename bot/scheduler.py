@@ -4,7 +4,8 @@
 def setup_scheduler():
     """Set up background job scheduler for price monitoring.
 
-    Returns:
+    Returns
+    -------
         APScheduler instance configured for the bot
+
     """
-    pass

@@ -2,6 +2,7 @@
 
 import asyncio
 from logging import getLogger
+
 from amazon_paapi import AmazonApi
 
 from .config import settings
@@ -14,13 +15,17 @@ async def get_item(asin: str) -> dict:
     """Fetch product information from Amazon PA-API.
 
     Args:
+    ----
         asin: Amazon Standard Identification Number
 
     Returns:
+    -------
         Dict with price, title, image
 
     Raises:
+    ------
         QuotaExceededError: When PA-API quota is exceeded
+
     """
     try:
         # Run PA-API call in thread since it's sync

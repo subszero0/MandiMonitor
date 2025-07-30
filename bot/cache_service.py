@@ -3,18 +3,21 @@
 import asyncio
 from datetime import datetime, timedelta
 from logging import getLogger
+
 from sqlmodel import Session, create_engine, select
 
+from .errors import QuotaExceededError
 from .models import Cache
 from .paapi_wrapper import get_item
 from .scraper import scrape_price
-from .errors import QuotaExceededError
 
 log = getLogger(__name__)
 
 # Create database engine
 engine = create_engine(
-    "sqlite:///dealbot.db", echo=False, connect_args={"check_same_thread": False}
+    "sqlite:///dealbot.db",
+    echo=False,
+    connect_args={"check_same_thread": False},
 )
 
 
@@ -22,13 +25,17 @@ def get_price(asin: str) -> int:
     """Get price for ASIN with 24h cache and fallback strategy.
 
     Args:
+    ----
         asin: Amazon Standard Identification Number
 
     Returns:
+    -------
         Price in paise (integer)
 
     Raises:
+    ------
         ValueError: If price cannot be fetched from any source
+
     """
     with Session(engine) as session:
         # Check cache first
@@ -37,7 +44,7 @@ def get_price(asin: str) -> int:
 
         # Return cached price if within 24 hours
         if cached_result and cached_result.fetched_at > datetime.utcnow() - timedelta(
-            hours=24
+            hours=24,
         ):
             log.info(
                 "Returning cached price for ASIN %s: %d paise",
@@ -57,11 +64,14 @@ def get_price(asin: str) -> int:
             log.info("PA-API returned price for ASIN %s: %d paise", asin, price)
         except QuotaExceededError:
             log.warning(
-                "PA-API quota exceeded for ASIN %s, falling back to scraper", asin
+                "PA-API quota exceeded for ASIN %s, falling back to scraper",
+                asin,
             )
         except Exception as e:
             log.warning(
-                "PA-API failed for ASIN %s: %s, falling back to scraper", asin, e
+                "PA-API failed for ASIN %s: %s, falling back to scraper",
+                asin,
+                e,
             )
 
         # Fallback to scraper if PA-API failed
@@ -80,7 +90,7 @@ def get_price(asin: str) -> int:
                     )
                     return cached_result.price
                 raise ValueError(
-                    f"Could not fetch price for ASIN {asin} from any source"
+                    f"Could not fetch price for ASIN {asin} from any source",
                 ) from e
 
         # Update cache
