@@ -3,11 +3,29 @@ services:
   bot:
     build: .
     env_file: .env
-    restart: unless-stopped
+    restart: always
+    ports:
+      - "8000:8000"
     volumes:
       - ./dealbot.db:/app/dealbot.db
-  # nginx:
-  #   image: nginx:alpine
-  #   restart: unless-stopped
-  #   # ports:
-  #   #   - "80:80" 
+  
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel run --token=${TUNNEL_TOKEN}
+    restart: always
+    depends_on: 
+      - bot
+  
+  cron:
+    image: alpine:3.19
+    volumes:
+      - ./scripts/backup_db.sh:/backup_db.sh:ro
+      - ./dealbot.db:/dealbot.db:ro
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command: 
+      - |
+        # Install cron and set up the backup job
+        apk add --no-cache dcron
+        echo '0 2 * * * /backup_db.sh' | crontab -
+        crond -f 

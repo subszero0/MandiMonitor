@@ -40,11 +40,38 @@ A Telegram bot for monitoring product prices and deals.
    FLASK_APP=bot.admin_app flask run
    ```
 
-## Docker Deployment
+## Deployment
+
+### Local Development
 
 ```bash
-docker compose up --build
+# Start the full stack locally
+docker compose up -d
+
+# Or build and run in one command
+docker compose up -d --build
 ```
+
+### Production (GitHub Actions → AWS ECR → Lightsail)
+
+The CI/CD pipeline automatically deploys on push to `main` branch.
+
+**Required GitHub Secrets:**
+
+```bash
+AWS_ACCESS_KEY_ID      # AWS IAM user access key
+AWS_SECRET_ACCESS_KEY  # AWS IAM user secret key  
+AWS_REGION            # e.g., us-east-1
+ECR_REPOSITORY        # ECR repository name
+LIGHTSAIL_HOST        # Lightsail instance IP/hostname
+LIGHTSAIL_USER        # SSH username (usually ubuntu)
+LIGHTSAIL_KEY         # SSH private key for Lightsail access
+```
+
+**Stack includes:**
+- Bot service (uvicorn on port 8000)
+- Cloudflare tunnel (requires TUNNEL_TOKEN in .env)
+- Cron backup service (nightly SQLite backups)
 
 ## Testing
 
