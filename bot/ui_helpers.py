@@ -87,3 +87,28 @@ def build_price_buttons() -> InlineKeyboardMarkup:
         rows.append(row)
 
     return InlineKeyboardMarkup(rows)
+
+
+def build_mode_buttons() -> InlineKeyboardMarkup:
+    """Build inline keyboard with monitoring mode options.
+
+    Returns
+    -------
+        InlineKeyboardMarkup with monitoring mode options
+
+    """
+    modes = [
+        ("🔄 Real-time (10 min)", "rt", "Get alerts every 10 minutes"),
+        ("📅 Daily (9 AM)", "daily", "Get daily digest at 9 AM IST"),
+    ]
+
+    rows = []
+    for text, mode, description in modes:
+        rows.append([
+            InlineKeyboardButton(
+                text,
+                callback_data=f"mode:{mode}",
+            )
+        ])
+
+    return InlineKeyboardMarkup(rows)

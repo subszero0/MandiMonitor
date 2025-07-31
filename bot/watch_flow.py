@@ -12,7 +12,7 @@ from .cache_service import engine, get_price
 from .carousel import build_single_card
 from .models import User, Watch
 from .paapi_wrapper import get_item, search_products
-from .ui_helpers import build_brand_buttons, build_discount_buttons, build_price_buttons
+from .ui_helpers import build_brand_buttons, build_discount_buttons, build_price_buttons, build_mode_buttons
 from .watch_parser import parse_watch, validate_watch_data
 
 log = logging.getLogger(__name__)
@@ -74,17 +74,7 @@ async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     context.user_data["pending_watch"] = parsed_data
     context.user_data["original_message_id"] = update.message.message_id
 
-    # For specific product names, don't ask for additional fields - just create the watch
-    # Only ask for missing info if the input is too vague
-    keywords_word_count = len(parsed_data["keywords"].split())
-    is_specific_enough = keywords_word_count >= 3 or parsed_data.get("brand") is not None
-    
-    if is_specific_enough:
-        # Input is detailed enough - create watch directly
-        await _finalize_watch(update, context, parsed_data)
-        return
-    
-    # Input is too vague - ask for more details
+    # Always ask for missing fields to give users control over their watch criteria
     missing_fields = []
     if parsed_data.get("brand") is None:
         missing_fields.append("brand")
@@ -92,6 +82,10 @@ async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         missing_fields.append("discount")
     if parsed_data.get("max_price") is None:
         missing_fields.append("price")
+    
+    # Also ask for monitoring mode if not specified
+    if not parsed_data.get("mode"):
+        missing_fields.append("mode")
 
     # If nothing is missing, finalize the watch
     if not missing_fields:
@@ -146,6 +140,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parsed_data["max_price"] = int(price_value)
         log.info("User %s selected price: %s", update.effective_user.id, price_value)
 
+    elif query.data.startswith("mode:"):
+        mode_value = query.data.split(":", 1)[1]
+        parsed_data["mode"] = mode_value
+        log.info("User %s selected mode: %s", update.effective_user.id, mode_value)
+
     else:
         await query.edit_message_text("❌ Unknown option selected.")
         return
@@ -161,6 +160,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         missing_fields.append("discount")
     if parsed_data.get("max_price") is None:
         missing_fields.append("price")
+    if not parsed_data.get("mode"):
+        missing_fields.append("mode")
 
     log.info(
         "User %s callback processed. Current data: %s, missing fields: %s",
@@ -211,6 +212,10 @@ async def _ask_for_missing_field(
     elif field == "price":
         text = "💰 *Maximum price:*\n\nWhat's your budget for this product?"
         keyboard = build_price_buttons()
+
+    elif field == "mode":
+        text = "⏰ *Monitoring mode:*\n\nHow often would you like to check for deals?"
+        keyboard = build_mode_buttons()
 
     else:
         log.error("Unknown field requested: %s", field)
@@ -294,7 +299,7 @@ async def _finalize_watch(
                 brand=watch_data.get("brand"),
                 max_price=watch_data.get("max_price"),
                 min_discount=watch_data.get("min_discount"),
-                mode="daily",  # Default to daily mode
+                mode=watch_data.get("mode", "daily"),  # Use selected mode or default to daily
             )
 
             session.add(watch)
@@ -351,7 +356,13 @@ async def _finalize_watch(
                     success_msg += f"\n💰 Max price: ₹{watch_data['max_price']:,}"
                 if watch_data.get("min_discount"):
                     success_msg += f"\n💸 Min discount: {watch_data['min_discount']}%"
-                success_msg += f"\n\n🔔 You'll get daily alerts when deals match your criteria!"
+                
+                # Add mode-specific alert message
+                mode = watch_data.get("mode", "daily")
+                if mode == "rt":
+                    success_msg += f"\n\n🔔 You'll get real-time alerts every 10 minutes when deals match your criteria!"
+                else:
+                    success_msg += f"\n\n🔔 You'll get daily alerts at 9 AM IST when deals match your criteria!"
 
                 # Send confirmation message first
                 if update.callback_query:
@@ -386,7 +397,14 @@ async def _finalize_watch(
                     success_msg += f"\n💰 Max price: ₹{watch_data['max_price']:,}"
                 if watch_data.get("min_discount"):
                     success_msg += f"\n💸 Min discount: {watch_data['min_discount']}%"
-                success_msg += f"\n\n🔔 You'll get daily alerts when deals match your criteria!\n\n⚠️ Current price unavailable, but monitoring is active."
+                
+                # Add mode-specific alert message
+                mode = watch_data.get("mode", "daily")
+                if mode == "rt":
+                    success_msg += f"\n\n🔔 You'll get real-time alerts every 10 minutes when deals match your criteria!"
+                else:
+                    success_msg += f"\n\n🔔 You'll get daily alerts at 9 AM IST when deals match your criteria!"
+                success_msg += f"\n\n⚠️ Current price unavailable, but monitoring is active."
 
                 if update.callback_query:
                     await update.callback_query.edit_message_text(success_msg, parse_mode="Markdown")
@@ -401,9 +419,15 @@ async def _finalize_watch(
                 success_msg += f"\n💰 Max price: ₹{watch_data['max_price']:,}"
             if watch_data.get("min_discount"):
                 success_msg += f"\n💸 Min discount: {watch_data['min_discount']}%"
+            
+            # Add mode-specific alert message
+            mode = watch_data.get("mode", "daily")
+            if mode == "rt":
+                success_msg += f"\n\n🔔 You'll get real-time alerts every 10 minutes when deals match your criteria!"
+            else:
+                success_msg += f"\n\n🔔 You'll get daily alerts at 9 AM IST when deals match your criteria!"
             success_msg += (
-                f"\n\n🔔 You'll get daily alerts when deals match your criteria!"
-                f"\n\n💡 **Tip:** I'll search for products matching your description during daily scans. "
+                f"\n\n💡 **Tip:** I'll search for products matching your description during scans. "
                 f"For immediate results, try providing Amazon links or more specific product details."
             )
 

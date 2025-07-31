@@ -207,6 +207,16 @@ async def handle_text_message(
     if not text or text.startswith("/"):
         return
     
+    text_lower = text.lower()
+    
+    # Check if this is an Amazon link - handle it specially
+    if "amazon." in text_lower or "amzn.to" in text_lower:
+        # This is an Amazon link, process it directly
+        context.args = text.split()
+        from .watch_flow import start_watch
+        await start_watch(update, context)
+        return
+    
     # Check if this looks like a question or conversation rather than a product request
     question_patterns = [
         "what happened",
@@ -224,8 +234,6 @@ async def handle_text_message(
         "tell me",
         "?",  # Any message ending with question mark
     ]
-    
-    text_lower = text.lower()
     
     # If the message looks like a question or conversational, provide help instead
     if any(pattern in text_lower for pattern in question_patterns) or text.endswith("?"):
@@ -249,15 +257,16 @@ I'm designed to help you track product prices. Here's what I can do:
         await update.message.reply_text(help_msg, parse_mode="Markdown")
         return
     
-    # Check if text is too short to be a meaningful product search
-    if len(text.split()) < 2:
+    # Check if text is too short to be a meaningful product search (but allow URLs)
+    if len(text.split()) < 2 and not ("http" in text_lower):
         await update.message.reply_text(
             "🔍 **Need more details!**\n\n"
             "Please provide more information about the product you want to track.\n\n"
             "**Examples:**\n"
             "• `Samsung gaming monitor`\n"
             "• `Apple iPhone 15`\n"
-            "• `Boat headphones under 3000`",
+            "• `Boat headphones under 3000`\n"
+            "• `https://amazon.in/dp/B09XYZ1234`",
             parse_mode="Markdown"
         )
         return
@@ -290,7 +299,7 @@ def setup_handlers(app) -> None:
 
     # Register callback handlers for watch creation flow
     app.add_handler(
-        CallbackQueryHandler(handle_callback, pattern="^(brand:|disc:|price:)")
+        CallbackQueryHandler(handle_callback, pattern="^(brand:|disc:|price:|mode:)")
     )
 
     # Register click handler for affiliate link tracking
