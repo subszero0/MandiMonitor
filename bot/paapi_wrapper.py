@@ -100,9 +100,16 @@ async def search_products(keywords: str, max_results: int = 10) -> List[Dict]:
     ------
         QuotaExceededError: When PA-API quota is exceeded
     """
+    # Check if PA-API credentials are configured
+    if not settings.PAAPI_ACCESS_KEY or not settings.PAAPI_SECRET_KEY or not settings.PAAPI_TAG:
+        log.warning("PA-API credentials not configured, skipping product search for: %s", keywords)
+        return []
+    
     try:
+        log.info("Starting PA-API product search for keywords: %s", keywords)
         # Run PA-API search in thread since it's sync
         result = await asyncio.to_thread(_sync_search_products, keywords, max_results)
+        log.info("PA-API search completed for '%s', found %d products", keywords, len(result))
         return result
     except Exception as exc:
         # Check if it's a quota exceeded error (HTTP 503)
@@ -110,7 +117,8 @@ async def search_products(keywords: str, max_results: int = 10) -> List[Dict]:
             log.warning("PA-API quota exceeded for search: %s", keywords)
             raise QuotaExceededError(f"PA-API quota exceeded for search: {keywords}") from exc
         log.error("PA-API search error for keywords '%s': %s", keywords, exc)
-        raise
+        # Return empty list instead of raising to allow watch creation to continue
+        return []
 
 
 def _sync_search_products(keywords: str, max_results: int) -> List[Dict]:

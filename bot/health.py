@@ -55,73 +55,87 @@ def admin_dashboard():
     """Return comprehensive admin dashboard."""
     _check_auth()
     
-    with Session(engine) as s:
-        # Get basic metrics
-        explorers = s.exec(select(func.count(User.id))).one()
-        watch_creators = s.exec(select(func.count(func.distinct(Watch.user_id)))).one()
-        live_watches = s.exec(select(func.count(Watch.id))).one()
-        click_outs = s.exec(select(func.count(Click.id))).one()
-        scraper_fallbacks = s.exec(
-            select(func.count(Price.id)).where(Price.source == "scraper")
-        ).one()
-        
-        # Get recent activity (last 24 hours)
-        yesterday = datetime.utcnow() - timedelta(days=1)
-        
-        recent_users = s.exec(
-            select(func.count(User.id)).where(User.first_seen >= yesterday)
-        ).one()
-        
-        recent_watches = s.exec(
-            select(func.count(Watch.id)).where(Watch.created >= yesterday)
-        ).one()
-        
-        recent_clicks = s.exec(
-            select(func.count(Click.id)).where(Click.clicked_at >= yesterday)
-        ).one()
-        
-        # Get recent watches with details
-        recent_watch_details = s.exec(
-            select(Watch, User)
-            .join(User, Watch.user_id == User.id)
-            .where(Watch.created >= yesterday)
-            .order_by(Watch.created.desc())
-            .limit(10)
-        ).all()
-        
-        # Get top brands being watched
-        brand_stats = s.exec(
-            select(Watch.brand, func.count(Watch.id).label("count"))
-            .where(Watch.brand.isnot(None))
-            .group_by(Watch.brand)
-            .order_by(func.count(Watch.id).desc())
-            .limit(10)
-        ).all()
-        
-        # Get price source stats
-        paapi_prices = s.exec(
-            select(func.count(Price.id)).where(Price.source == "paapi")
-        ).one()
-        
-        total_prices = s.exec(select(func.count(Price.id))).one()
-        
-    return render_template_string(ADMIN_TEMPLATE, 
-        explorers=explorers,
-        watch_creators=watch_creators,
-        live_watches=live_watches,
-        click_outs=click_outs,
-        scraper_fallbacks=scraper_fallbacks,
-        recent_users=recent_users,
-        recent_watches=recent_watches,
-        recent_clicks=recent_clicks,
-        recent_watch_details=recent_watch_details,
-        brand_stats=brand_stats,
-        paapi_prices=paapi_prices,
-        total_prices=total_prices,
-        conversion_rate=round((click_outs / live_watches * 100) if live_watches > 0 else 0, 2),
-        paapi_success_rate=round((paapi_prices / total_prices * 100) if total_prices > 0 else 0, 2),
-        datetime=datetime
-    )
+    try:
+        with Session(engine) as s:
+            # Get basic metrics
+            explorers = s.exec(select(func.count(User.id))).one()
+            watch_creators = s.exec(select(func.count(func.distinct(Watch.user_id)))).one()
+            live_watches = s.exec(select(func.count(Watch.id))).one()
+            click_outs = s.exec(select(func.count(Click.id))).one()
+            scraper_fallbacks = s.exec(
+                select(func.count(Price.id)).where(Price.source == "scraper")
+            ).one()
+            
+            # Get recent activity (last 24 hours)
+            yesterday = datetime.utcnow() - timedelta(days=1)
+            
+            recent_users = s.exec(
+                select(func.count(User.id)).where(User.first_seen >= yesterday)
+            ).one()
+            
+            recent_watches = s.exec(
+                select(func.count(Watch.id)).where(Watch.created >= yesterday)
+            ).one()
+            
+            recent_clicks = s.exec(
+                select(func.count(Click.id)).where(Click.clicked_at >= yesterday)
+            ).one()
+            
+            # Get recent watches with details - simplified query
+            recent_watch_details = []
+            try:
+                recent_watch_results = s.exec(
+                    select(Watch, User)
+                    .join(User, Watch.user_id == User.id)
+                    .where(Watch.created >= yesterday)
+                    .order_by(Watch.created.desc())
+                    .limit(10)
+                ).all()
+                recent_watch_details = recent_watch_results
+            except Exception as e:
+                print(f"Error fetching recent watches: {e}")
+            
+            # Get top brands being watched - simplified query
+            brand_stats = []
+            try:
+                brand_results = s.exec(
+                    select(Watch.brand, func.count(Watch.id).label("count"))
+                    .where(Watch.brand.isnot(None))
+                    .group_by(Watch.brand)
+                    .order_by(func.count(Watch.id).desc())
+                    .limit(10)
+                ).all()
+                brand_stats = brand_results
+            except Exception as e:
+                print(f"Error fetching brand stats: {e}")
+            
+            # Get price source stats
+            paapi_prices = s.exec(
+                select(func.count(Price.id)).where(Price.source == "paapi")
+            ).one()
+            
+            total_prices = s.exec(select(func.count(Price.id))).one()
+            
+        return render_template_string(ADMIN_TEMPLATE, 
+            explorers=explorers,
+            watch_creators=watch_creators,
+            live_watches=live_watches,
+            click_outs=click_outs,
+            scraper_fallbacks=scraper_fallbacks,
+            recent_users=recent_users,
+            recent_watches=recent_watches,
+            recent_clicks=recent_clicks,
+            recent_watch_details=recent_watch_details,
+            brand_stats=brand_stats,
+            paapi_prices=paapi_prices,
+            total_prices=total_prices,
+            conversion_rate=round((click_outs / live_watches * 100) if live_watches > 0 else 0, 2),
+            paapi_success_rate=round((paapi_prices / total_prices * 100) if total_prices > 0 else 0, 2),
+            datetime=datetime
+        )
+    except Exception as e:
+        # Return simple error page for debugging
+        return f"<h1>Admin Dashboard Error</h1><p>Error: {str(e)}</p><p>Please check logs for details.</p>", 500
 
 
 @app.route("/admin/prices.csv")
