@@ -194,18 +194,72 @@ async def click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def handle_text_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Handle free text messages as watch creation input.
+    """Handle free text messages intelligently.
 
     Args:
     ----
         update: Telegram update object
         context: Bot context
     """
-    # Treat free text as watch creation input
     text = update.message.text.strip()
 
     # Ignore empty messages or messages that look like commands
     if not text or text.startswith("/"):
+        return
+    
+    # Check if this looks like a question or conversation rather than a product request
+    question_patterns = [
+        "what happened",
+        "what's wrong",
+        "what is this",
+        "why",
+        "how",
+        "can you",
+        "do you",
+        "are you",
+        "is this",
+        "help me",
+        "what's going on",
+        "explain",
+        "tell me",
+        "?",  # Any message ending with question mark
+    ]
+    
+    text_lower = text.lower()
+    
+    # If the message looks like a question or conversational, provide help instead
+    if any(pattern in text_lower for pattern in question_patterns) or text.endswith("?"):
+        help_msg = """
+🤔 **I see you have a question!**
+
+I'm designed to help you track product prices. Here's what I can do:
+
+**To create a price watch, send me:**
+• Product descriptions: `Samsung 27 inch gaming monitor`
+• Amazon links: `https://amazon.in/dp/B09XYZ1234`
+• Specific requests: `iPhone 15 under 50000 with 20% discount`
+
+**Available commands:**
+/help - Show all commands
+/status - Check bot status
+/watch - Create a new price watch
+
+💡 **Tip:** Just type what you're looking for and I'll help you set up price alerts!
+        """
+        await update.message.reply_text(help_msg, parse_mode="Markdown")
+        return
+    
+    # Check if text is too short to be a meaningful product search
+    if len(text.split()) < 2:
+        await update.message.reply_text(
+            "🔍 **Need more details!**\n\n"
+            "Please provide more information about the product you want to track.\n\n"
+            "**Examples:**\n"
+            "• `Samsung gaming monitor`\n"
+            "• `Apple iPhone 15`\n"
+            "• `Boat headphones under 3000`",
+            parse_mode="Markdown"
+        )
         return
 
     # Convert the text message into a /watch command format

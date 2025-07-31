@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 from .cache_service import engine, get_price
 from .carousel import build_single_card
 from .models import User, Watch
-from .paapi_wrapper import get_item
+from .paapi_wrapper import get_item, search_products
 from .ui_helpers import build_brand_buttons, build_discount_buttons, build_price_buttons
 from .watch_parser import parse_watch, validate_watch_data
 
@@ -74,13 +74,23 @@ async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     context.user_data["pending_watch"] = parsed_data
     context.user_data["original_message_id"] = update.message.message_id
 
-    # Check what's missing and ask for it (optional fields can be None if explicitly skipped)
+    # For specific product names, don't ask for additional fields - just create the watch
+    # Only ask for missing info if the input is too vague
+    keywords_word_count = len(parsed_data["keywords"].split())
+    is_specific_enough = keywords_word_count >= 3 or parsed_data.get("brand") is not None
+    
+    if is_specific_enough:
+        # Input is detailed enough - create watch directly
+        await _finalize_watch(update, context, parsed_data)
+        return
+    
+    # Input is too vague - ask for more details
     missing_fields = []
-    if parsed_data.get("brand") is None and "brand" not in parsed_data:
+    if parsed_data.get("brand") is None:
         missing_fields.append("brand")
-    if parsed_data.get("min_discount") is None and "min_discount" not in parsed_data:
+    if parsed_data.get("min_discount") is None:
         missing_fields.append("discount")
-    if parsed_data.get("max_price") is None and "max_price" not in parsed_data:
+    if parsed_data.get("max_price") is None:
         missing_fields.append("price")
 
     # If nothing is missing, finalize the watch
@@ -143,13 +153,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Update stored data
     context.user_data["pending_watch"] = parsed_data
 
-    # Check what's still missing (optional fields can be None if explicitly skipped)
+    # Check what's still missing (only ask if field is None)
     missing_fields = []
-    if parsed_data.get("brand") is None and "brand" not in parsed_data:
+    if parsed_data.get("brand") is None:
         missing_fields.append("brand")
-    if parsed_data.get("min_discount") is None and "min_discount" not in parsed_data:
+    if parsed_data.get("min_discount") is None:
         missing_fields.append("discount")
-    if parsed_data.get("max_price") is None and "max_price" not in parsed_data:
+    if parsed_data.get("max_price") is None:
         missing_fields.append("price")
 
     log.info(
@@ -252,10 +262,34 @@ async def _finalize_watch(
                 session.refresh(user)
                 log.info("Created new user: %s", user_id)
 
+            # Try to find ASIN if not provided
+            asin = watch_data.get("asin")
+            if not asin:
+                try:
+                    log.info("No ASIN provided, attempting product search for: %s", watch_data["keywords"])
+                    search_results = await search_products(watch_data["keywords"], max_results=3)
+                    if search_results:
+                        # Filter results based on brand if specified
+                        if watch_data.get("brand"):
+                            brand_filtered = [
+                                product for product in search_results 
+                                if watch_data["brand"].lower() in product["title"].lower()
+                            ]
+                            if brand_filtered:
+                                search_results = brand_filtered
+                        
+                        # Use the first result as the best match
+                        best_match = search_results[0]
+                        asin = best_match["asin"]
+                        log.info("Found ASIN %s for search: %s", asin, watch_data["keywords"])
+                except Exception as search_error:
+                    log.warning("Product search failed for '%s': %s", watch_data["keywords"], search_error)
+                    # Continue without ASIN - watch will still be created for future searches
+
             # Create watch record
             watch = Watch(
                 user_id=user.id,
-                asin=watch_data.get("asin"),
+                asin=asin,
                 keywords=watch_data["keywords"],
                 brand=watch_data.get("brand"),
                 max_price=watch_data.get("max_price"),
@@ -287,107 +321,107 @@ async def _finalize_watch(
             await update.effective_message.reply_text(error_msg)
         return
 
-    # Send confirmation message
+    # Clear pending data
+    context.user_data.pop("pending_watch", None)
+    context.user_data.pop("original_message_id", None)
+
+    # Send single comprehensive message based on what we found
     try:
-        confirmation = (
-            f"✅ *Watch created successfully!*\n\n"
-            f"📱 Product: {watch_data['keywords']}\n"
-        )
-
-        if watch_data.get("brand"):
-            confirmation += f"🏷️ Brand: {watch_data['brand'].title()}\n"
-        if watch_data.get("max_price"):
-            confirmation += f"💰 Max price: ₹{watch_data['max_price']:,}\n"
-        if watch_data.get("min_discount"):
-            confirmation += f"💸 Min discount: {watch_data['min_discount']}%\n"
-
-        confirmation += "\n🔔 You'll get daily alerts when deals match your criteria!"
-
-        # Clear pending data
-        context.user_data.pop("pending_watch", None)
-        context.user_data.pop("original_message_id", None)
-
-        log.info("Prepared confirmation message for user %s", user_id)
-
-    except Exception as e:
-        log.error("Error preparing confirmation message for user %s: %s", user_id, e)
-        confirmation = "✅ Watch created successfully! You'll get daily alerts when deals match your criteria!"
-
-    # Always send confirmation first
-    try:
-        if update.callback_query:
-            await update.callback_query.edit_message_text(
-                confirmation,
-                parse_mode="Markdown",
-            )
-        else:
-            await update.effective_message.reply_text(
-                confirmation,
-                parse_mode="Markdown",
-            )
-        log.info("Sent confirmation message to user %s", user_id)
-    except Exception as e:
-        log.error("Error sending confirmation message to user %s: %s", user_id, e)
-
-    # Try to get current price and show mini-card
-    if watch_data.get("asin"):
-        try:
-            log.info("Fetching current price for ASIN %s", watch_data["asin"])
-
-            # Get current price
-            price = get_price(watch_data["asin"])
-            log.info("Retrieved price %s for ASIN %s", price, watch_data["asin"])
-
-            # Try to get product details from PA-API
+        if asin:
+            # We found a specific product - try to show price card
             try:
-                item_data = await get_item(watch_data["asin"])
-                title = item_data.get("title", watch_data["keywords"])
-                image_url = item_data.get(
-                    "image", "https://m.media-amazon.com/images/I/81.png"
+                log.info("Fetching current price for ASIN %s", asin)
+                price = get_price(asin)
+                
+                # Try to get product details from PA-API
+                try:
+                    item_data = await get_item(asin)
+                    title = item_data.get("title", watch_data["keywords"])
+                    image_url = item_data.get("image", "https://m.media-amazon.com/images/I/81.png")
+                except Exception as e:
+                    log.warning("Could not get item details for ASIN %s: %s", asin, e)
+                    title = watch_data["keywords"]
+                    image_url = "https://m.media-amazon.com/images/I/81.png"
+
+                # Build success message with current price
+                success_msg = f"✅ **Watch created successfully!**\n\n📱 Product: {title}"
+                if watch_data.get("brand"):
+                    success_msg += f"\n🏷️ Brand: {watch_data['brand'].title()}"
+                if watch_data.get("max_price"):
+                    success_msg += f"\n💰 Max price: ₹{watch_data['max_price']:,}"
+                if watch_data.get("min_discount"):
+                    success_msg += f"\n💸 Min discount: {watch_data['min_discount']}%"
+                success_msg += f"\n\n🔔 You'll get daily alerts when deals match your criteria!"
+
+                # Send confirmation message first
+                if update.callback_query:
+                    await update.callback_query.edit_message_text(success_msg, parse_mode="Markdown")
+                else:
+                    await update.effective_message.reply_text(success_msg, parse_mode="Markdown")
+
+                # Then send price card
+                caption, keyboard = build_single_card(
+                    title=title,
+                    price=price,
+                    image=image_url,
+                    asin=asin,
+                    watch_id=watch.id,
                 )
-            except Exception as e:
-                log.warning(
-                    "Could not get item details for ASIN %s: %s", watch_data["asin"], e
-                )
-                title = watch_data["keywords"]
-                image_url = "https://m.media-amazon.com/images/I/81.png"
 
-            # Build and send card
-            caption, keyboard = build_single_card(
-                title=title,
-                price=price,
-                image=image_url,
-                asin=watch_data["asin"],
-                watch_id=watch.id,
-            )
-
-            await update.effective_message.reply_photo(
-                photo=image_url,
-                caption=caption,
-                reply_markup=keyboard,
-                parse_mode="Markdown",
-            )
-            log.info("Sent price card to user %s", user_id)
-
-        except Exception as e:
-            log.error(
-                "Error fetching current price for ASIN %s: %s", watch_data["asin"], e
-            )
-            # Send additional message about price fetch failure
-            try:
-                await update.effective_message.reply_text(
-                    "⚠️ Could not fetch current price, but watch is active!",
+                await update.effective_message.reply_photo(
+                    photo=image_url,
+                    caption=caption,
+                    reply_markup=keyboard,
                     parse_mode="Markdown",
                 )
-            except Exception as msg_error:
-                log.error("Error sending price error message: %s", msg_error)
-    else:
-        # No ASIN case - send additional message
-        try:
-            await update.effective_message.reply_text(
-                "⚠️ ASIN not found yet - I'll try to find it in product searches!",
-                parse_mode="Markdown",
+                log.info("Successfully sent watch confirmation and price card to user %s", user_id)
+                
+            except Exception as price_error:
+                log.error("Error fetching price for ASIN %s: %s", asin, price_error)
+                # Send success message without price card
+                success_msg = f"✅ **Watch created successfully!**\n\n📱 Product: {watch_data['keywords']}"
+                if watch_data.get("brand"):
+                    success_msg += f"\n🏷️ Brand: {watch_data['brand'].title()}"
+                if watch_data.get("max_price"):
+                    success_msg += f"\n💰 Max price: ₹{watch_data['max_price']:,}"
+                if watch_data.get("min_discount"):
+                    success_msg += f"\n💸 Min discount: {watch_data['min_discount']}%"
+                success_msg += f"\n\n🔔 You'll get daily alerts when deals match your criteria!\n\n⚠️ Current price unavailable, but monitoring is active."
+
+                if update.callback_query:
+                    await update.callback_query.edit_message_text(success_msg, parse_mode="Markdown")
+                else:
+                    await update.effective_message.reply_text(success_msg, parse_mode="Markdown")
+        else:
+            # No specific product found - general watch created
+            success_msg = f"✅ **Watch created successfully!**\n\n📱 Product: {watch_data['keywords']}"
+            if watch_data.get("brand"):
+                success_msg += f"\n🏷️ Brand: {watch_data['brand'].title()}"
+            if watch_data.get("max_price"):
+                success_msg += f"\n💰 Max price: ₹{watch_data['max_price']:,}"
+            if watch_data.get("min_discount"):
+                success_msg += f"\n💸 Min discount: {watch_data['min_discount']}%"
+            success_msg += (
+                f"\n\n🔔 You'll get daily alerts when deals match your criteria!"
+                f"\n\n💡 **Tip:** I'll search for products matching your description during daily scans. "
+                f"For immediate results, try providing Amazon links or more specific product details."
             )
-            log.info("Sent no-ASIN message to user %s", user_id)
-        except Exception as e:
-            log.error("Error sending no-ASIN message to user %s: %s", user_id, e)
+
+            if update.callback_query:
+                await update.callback_query.edit_message_text(success_msg, parse_mode="Markdown")
+            else:
+                await update.effective_message.reply_text(success_msg, parse_mode="Markdown")
+                
+        log.info("Successfully created watch and sent confirmation to user %s", user_id)
+        
+    except Exception as e:
+        log.error("Error in watch finalization messaging for user %s: %s", user_id, e)
+        # Fallback message
+        try:
+            fallback_msg = "✅ Watch created successfully! You'll get daily alerts when deals match your criteria!"
+            if update.callback_query:
+                await update.callback_query.edit_message_text(fallback_msg, parse_mode="Markdown")
+            else:
+                await update.effective_message.reply_text(fallback_msg, parse_mode="Markdown")
+        except Exception as fallback_error:
+            log.error("Error sending fallback message: %s", fallback_error)
