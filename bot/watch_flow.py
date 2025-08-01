@@ -339,30 +339,54 @@ async def _finalize_watch(
     # Send single comprehensive message based on what we found
     try:
         if asin:
-            # We found a specific product - try to show price card
+            # We found a specific product - try to get comprehensive product data
             try:
-                log.info("Fetching current price for ASIN %s", asin)
-                price = get_price(asin)
+                log.info("Fetching product data for ASIN %s", asin)
                 
-                # Try to get product details from PA-API first, then fallback to scraper
+                # Try to get complete product data from PA-API first
+                title = watch_data["keywords"]
+                image_url = "https://m.media-amazon.com/images/I/81.png"
+                price = None
+                
                 try:
+                    log.info("Trying PA-API for ASIN %s", asin)
                     item_data = await get_item(asin)
                     title = item_data.get("title", watch_data["keywords"])
                     image_url = item_data.get("image", "https://m.media-amazon.com/images/I/81.png")
+                    price = item_data.get("price")
+                    log.info("PA-API succeeded for ASIN %s", asin)
                 except Exception as e:
                     log.warning("PA-API failed for ASIN %s: %s, trying scraper", asin, e)
+                
+                # If PA-API failed or didn't get complete data, try scraper
+                if not title or title == watch_data["keywords"] or not price:
                     try:
+                        log.info("Using scraper for comprehensive data for ASIN %s", asin)
                         from .scraper import scrape_product_data
                         scraped_data = scrape_product_data(asin)
-                        title = scraped_data.get("title", watch_data["keywords"])
-                        image_url = scraped_data.get("image", "https://m.media-amazon.com/images/I/81.png")
-                        log.info("Successfully scraped product data for ASIN %s", asin)
+                        
+                        # Use scraped data if we got better info
+                        if scraped_data.get("title") and scraped_data["title"] != f"Product {asin}":
+                            title = scraped_data["title"]
+                        if scraped_data.get("image"):
+                            image_url = scraped_data["image"]
+                        if scraped_data.get("price"):
+                            price = scraped_data["price"]
+                        
+                        log.info("Successfully scraped product data for ASIN %s: title=%s, price=%s", asin, title, price)
                     except Exception as scrape_error:
                         log.warning("Scraper also failed for ASIN %s: %s", asin, scrape_error)
-                        title = watch_data["keywords"]
-                        image_url = "https://m.media-amazon.com/images/I/81.png"
+                
+                # If we still don't have price, try the cache service as last resort
+                if not price:
+                    try:
+                        log.info("Trying cache service for price only for ASIN %s", asin)
+                        price = get_price(asin)
+                        log.info("Cache service returned price for ASIN %s: %s", asin, price)
+                    except Exception as cache_error:
+                        log.warning("Cache service also failed for ASIN %s: %s", asin, cache_error)
 
-                # Build success message with current price
+                # Build success message
                 success_msg = f"✅ **Watch created successfully!**\n\n📱 Product: {title}"
                 if watch_data.get("brand"):
                     success_msg += f"\n🏷️ Brand: {watch_data['brand'].title()}"
@@ -384,14 +408,22 @@ async def _finalize_watch(
                 else:
                     await update.effective_message.reply_text(success_msg, parse_mode="Markdown")
 
-                # Then send price card
-                caption, keyboard = build_single_card(
-                    title=title,
-                    price=price,
-                    image=image_url,
-                    asin=asin,
-                    watch_id=watch.id,
-                )
+                # Send price card if we have price, otherwise send product card without price
+                if price:
+                    caption, keyboard = build_single_card(
+                        title=title,
+                        price=price,
+                        image=image_url,
+                        asin=asin,
+                        watch_id=watch.id,
+                    )
+                else:
+                    # Build card without price
+                    caption = f"📱 {title}\n\n🔍 Monitoring for price updates..."
+                    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🛒 VIEW ON AMAZON", callback_data=f"click:{watch.id}:{asin}")]
+                    ])
 
                 await update.effective_message.reply_photo(
                     photo=image_url,
@@ -399,7 +431,7 @@ async def _finalize_watch(
                     reply_markup=keyboard,
                     parse_mode="Markdown",
                 )
-                log.info("Successfully sent watch confirmation and price card to user %s", user_id)
+                log.info("Successfully sent watch confirmation and product card to user %s (price: %s)", user_id, "available" if price else "unavailable")
                 
             except Exception as price_error:
                 log.error("Error fetching price for ASIN %s: %s", asin, price_error)
