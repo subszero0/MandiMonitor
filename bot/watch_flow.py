@@ -78,9 +78,9 @@ async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     missing_fields = []
     if parsed_data.get("brand") is None:
         missing_fields.append("brand")
-    if parsed_data.get("min_discount") is None:
+    if not parsed_data.get("_discount_selected", False):
         missing_fields.append("discount")
-    if parsed_data.get("max_price") is None:
+    if not parsed_data.get("_price_selected", False):
         missing_fields.append("price")
     
     # Also ask for monitoring mode if not specified
@@ -128,6 +128,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parsed_data["min_discount"] = None
         else:
             parsed_data["min_discount"] = int(discount_value)
+        parsed_data["_discount_selected"] = True  # Mark as processed
         log.info(
             "User %s selected discount: %s", update.effective_user.id, discount_value
         )
@@ -138,6 +139,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parsed_data["max_price"] = None
         else:
             parsed_data["max_price"] = int(price_value)
+        parsed_data["_price_selected"] = True  # Mark as processed
         log.info("User %s selected price: %s", update.effective_user.id, price_value)
 
     elif query.data.startswith("mode:"):
@@ -152,13 +154,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Update stored data
     context.user_data["pending_watch"] = parsed_data
 
-    # Check what's still missing (only ask if field is None)
+    # Check what's still missing (use processed markers to avoid re-asking skipped fields)
     missing_fields = []
     if parsed_data.get("brand") is None:
         missing_fields.append("brand")
-    if parsed_data.get("min_discount") is None:
+    if not parsed_data.get("_discount_selected", False):
         missing_fields.append("discount")
-    if parsed_data.get("max_price") is None:
+    if not parsed_data.get("_price_selected", False):
         missing_fields.append("price")
     if not parsed_data.get("mode"):
         missing_fields.append("mode")
@@ -326,6 +328,10 @@ async def _finalize_watch(
             await update.effective_message.reply_text(error_msg)
         return
 
+    # Clean up internal tracking fields
+    watch_data.pop("_discount_selected", None)
+    watch_data.pop("_price_selected", None)
+    
     # Clear pending data
     context.user_data.pop("pending_watch", None)
     context.user_data.pop("original_message_id", None)
@@ -338,15 +344,23 @@ async def _finalize_watch(
                 log.info("Fetching current price for ASIN %s", asin)
                 price = get_price(asin)
                 
-                # Try to get product details from PA-API
+                # Try to get product details from PA-API first, then fallback to scraper
                 try:
                     item_data = await get_item(asin)
                     title = item_data.get("title", watch_data["keywords"])
                     image_url = item_data.get("image", "https://m.media-amazon.com/images/I/81.png")
                 except Exception as e:
-                    log.warning("Could not get item details for ASIN %s: %s", asin, e)
-                    title = watch_data["keywords"]
-                    image_url = "https://m.media-amazon.com/images/I/81.png"
+                    log.warning("PA-API failed for ASIN %s: %s, trying scraper", asin, e)
+                    try:
+                        from .scraper import scrape_product_data
+                        scraped_data = scrape_product_data(asin)
+                        title = scraped_data.get("title", watch_data["keywords"])
+                        image_url = scraped_data.get("image", "https://m.media-amazon.com/images/I/81.png")
+                        log.info("Successfully scraped product data for ASIN %s", asin)
+                    except Exception as scrape_error:
+                        log.warning("Scraper also failed for ASIN %s: %s", asin, scrape_error)
+                        title = watch_data["keywords"]
+                        image_url = "https://m.media-amazon.com/images/I/81.png"
 
                 # Build success message with current price
                 success_msg = f"✅ **Watch created successfully!**\n\n📱 Product: {title}"
