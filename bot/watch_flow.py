@@ -363,12 +363,13 @@ async def _finalize_watch(
                     try:
                         log.info("Using scraper for comprehensive data for ASIN %s", asin)
                         from .scraper import scrape_product_data
-                        scraped_data = scrape_product_data(asin)
+                        scraped_data = await scrape_product_data(asin)
                         
                         # Use scraped data if we got better info
                         if scraped_data.get("title") and scraped_data["title"] != f"Product {asin}":
                             title = scraped_data["title"]
-                        if scraped_data.get("image"):
+                        if scraped_data.get("image") and scraped_data["image"].startswith("http"):
+                            # Validate image URL
                             image_url = scraped_data["image"]
                         if scraped_data.get("price"):
                             price = scraped_data["price"]
@@ -380,8 +381,9 @@ async def _finalize_watch(
                 # If we still don't have price, try the cache service as last resort
                 if not price:
                     try:
-                        log.info("Trying cache service for price only for ASIN %s", asin)
-                        price = get_price(asin)
+                        log.info("Trying async cache service for price only for ASIN %s", asin)
+                        from .cache_service import get_price_async
+                        price = await get_price_async(asin)
                         log.info("Cache service returned price for ASIN %s: %s", asin, price)
                     except Exception as cache_error:
                         log.warning("Cache service also failed for ASIN %s: %s", asin, cache_error)
@@ -425,13 +427,23 @@ async def _finalize_watch(
                         [InlineKeyboardButton("🛒 VIEW ON AMAZON", callback_data=f"click:{watch.id}:{asin}")]
                     ])
 
-                await update.effective_message.reply_photo(
-                    photo=image_url,
-                    caption=caption,
-                    reply_markup=keyboard,
-                    parse_mode="Markdown",
-                )
-                log.info("Successfully sent watch confirmation and product card to user %s (price: %s)", user_id, "available" if price else "unavailable")
+                try:
+                    await update.effective_message.reply_photo(
+                        photo=image_url,
+                        caption=caption,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown",
+                    )
+                    log.info("Successfully sent watch confirmation and product card to user %s (price: %s)", user_id, "available" if price else "unavailable")
+                except Exception as photo_error:
+                    log.warning("Failed to send photo, sending text message instead: %s", photo_error)
+                    # Fallback to text message if photo fails
+                    await update.effective_message.reply_text(
+                        caption,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown",
+                    )
+                    log.info("Successfully sent text fallback message to user %s", user_id)
                 
             except Exception as price_error:
                 log.error("Error fetching price for ASIN %s: %s", asin, price_error)

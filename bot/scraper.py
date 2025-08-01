@@ -3,12 +3,12 @@
 from logging import getLogger
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 log = getLogger(__name__)
 
 
-def scrape_product_data(asin: str) -> dict:
+async def scrape_product_data(asin: str) -> dict:
     """Scrape product data from Amazon page using Playwright.
 
     Args:
@@ -27,17 +27,17 @@ def scrape_product_data(asin: str) -> dict:
     url = f"https://www.amazon.in/dp/{asin}"
 
     try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            page = browser.new_page(
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            page = await browser.new_page(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             )
 
             log.info("Scraping price for ASIN %s from %s", asin, url)
-            page.goto(url, timeout=30_000)
+            await page.goto(url, timeout=30_000)
 
             # Save HTML for debugging
-            html = page.content()
+            html = await page.content()
             debug_path = Path(f"debug/{asin}.html")
             debug_path.parent.mkdir(exist_ok=True)
             debug_path.write_text(html, encoding="utf-8")
@@ -55,8 +55,8 @@ def scrape_product_data(asin: str) -> dict:
             for selector in title_selectors:
                 try:
                     title_element = page.locator(selector).first
-                    if title_element.is_visible():
-                        title = title_element.text_content()
+                    if await title_element.is_visible():
+                        title = await title_element.text_content()
                         if title and title.strip():
                             title = title.strip()
                             break
@@ -75,8 +75,8 @@ def scrape_product_data(asin: str) -> dict:
             for selector in image_selectors:
                 try:
                     img_element = page.locator(selector).first
-                    if img_element.is_visible():
-                        image_url = img_element.get_attribute("src")
+                    if await img_element.is_visible():
+                        image_url = await img_element.get_attribute("src")
                         if image_url and image_url.startswith("http"):
                             break
                 except Exception:
@@ -96,14 +96,14 @@ def scrape_product_data(asin: str) -> dict:
             for selector in price_selectors:
                 try:
                     price_element = page.locator(selector).first
-                    if price_element.is_visible():
-                        price_text = price_element.text_content()
+                    if await price_element.is_visible():
+                        price_text = await price_element.text_content()
                         if price_text:
                             break
                 except Exception:
                     continue
 
-            browser.close()
+            await browser.close()
 
             # Parse price if found
             price = None
@@ -132,7 +132,7 @@ def scrape_product_data(asin: str) -> dict:
         raise
 
 
-def scrape_price(asin: str) -> int:
+async def scrape_price(asin: str) -> int:
     """Scrape product price from Amazon page (compatibility function).
 
     Args:
@@ -149,7 +149,7 @@ def scrape_price(asin: str) -> int:
 
     """
     try:
-        product_data = scrape_product_data(asin)
+        product_data = await scrape_product_data(asin)
         if product_data.get("price") is None:
             raise ValueError(f"No price found for ASIN: {asin}")
         return product_data["price"]
