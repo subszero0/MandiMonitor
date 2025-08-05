@@ -50,48 +50,99 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9) -> list[str
     try:
         log.info("Fetching dynamic brands for query: %s", search_query)
         
-        # Search for products related to the query
+        # Try PA-API first
         search_results = await search_products(search_query, max_results=20)
         
+        # If PA-API failed or returned no results, try scraper fallback
         if not search_results:
-            log.warning("No search results for dynamic brand extraction: %s", search_query)
+            log.info("PA-API returned no results for '%s', trying scraper fallback", search_query)
+            from .scraper import scrape_amazon_search
+            try:
+                search_results = await scrape_amazon_search(search_query, max_results=20)
+                log.info("Scraper found %d results for brand extraction: %s", len(search_results), search_query)
+            except Exception as scraper_error:
+                log.warning("Scraper also failed for '%s': %s", search_query, scraper_error)
+                search_results = []
+        
+        if not search_results:
+            log.warning("No search results from any source for dynamic brand extraction: %s", search_query)
             return COMMON_BRANDS[:max_brands]
         
         # Extract potential brands from product titles
         brands = set()
         
-        # Common brand extraction patterns
+        # Enhanced brand extraction patterns
         brand_patterns = [
-            # Brand at start: "Samsung Galaxy S24"
-            r"^([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)\s+",
-            # Brand in parentheses: "Phone Case (Apple iPhone)"
-            r"\(([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)\)",
-            # Brand with "by": "Polish by 3M"
-            r"by\s+([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)",
+            # Brand at start: "Samsung Galaxy S24", "3M Car Polish" 
+            r"^([A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*)?)\s+",
+            # Brand in parentheses: "Polish (3M Brand)" or "(Apple iPhone 15)"
+            r"\(([A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z0-9]+)?)?)\)",
+            # Brand with "by": "Polish by 3M Premium", "Made by Meguiar's"
+            r"by\s+([A-Za-z0-9]+(?:\s+[A-Za-z]+)?)",
             # Common separators: "Brand - Product" or "Brand | Product"
             r"^([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)\s*[-|]\s*",
+            # Brand with possessive: "Meguiar's Gold Class"
+            r"^([A-Za-z][A-Za-z0-9]*'[s])\s+",
+            # Brand with dots: "Dr. Smith's Face Wash"
+            r"^([A-Za-z][A-Za-z0-9]*\.?\s+[A-Za-z][A-Za-z0-9]*)\s+",
+            # Standalone possessive brands: "Meguiar's" anywhere in title
+            r"\b([A-Za-z][A-Za-z0-9]*'[s])\b",
+            # Find known brand patterns: "Turtle Wax", "Chemical Guys", etc.
+            r"\b([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(wax|guys|care|polish|wash)\b",
+            # Simple two-word brands: "Turtle Wax", "Chemical Guys" - more direct extraction
+            r"\b(turtle|chemical|armor|mothers|sonax|griot's|meguiar's|3m|dr)\s+([a-z]+)\b",
         ]
+        
+        # Expanded filter list for non-brand words
+        non_brand_words = {
+            "the", "and", "for", "with", "pack", "set", "new", "pro", "max", "mini", "ultra", "plus", 
+            "case", "cover", "phone", "mobile", "car", "auto", "face", "skin", "hair", "body", 
+            "wash", "care", "polish", "wax", "cream", "gel", "soap", "shampoo", "oil", "spray",
+            "liquid", "foam", "paste", "kit", "combo", "organic", "natural", "herbal",
+            "advanced", "professional", "instant", "quick", "easy", "super", "mega", "extra",
+            "best", "top", "high", "low", "pure", "fresh", "clean", "soft", "hard", "heavy",
+            "light", "dark", "white", "black", "red", "blue", "green", "ml", "gm", "kg", "pcs",
+            "litre", "liter", "gram", "all", "some", "many", "car polish", "phone case"
+        }
         
         for product in search_results:
             title = product.get("title", "").strip()
             if not title:
                 continue
                 
+            log.debug("Processing title for brands: %s", title[:80])
+                
             # Try each pattern to extract brand
-            for pattern in brand_patterns:
-                matches = re.findall(pattern, title, re.IGNORECASE)
-                for match in matches:
-                    brand = match.strip().lower()
-                    # Filter out common non-brand words
-                    if (brand and len(brand) >= 2 and 
-                        brand not in ["the", "and", "for", "with", "pack", "set", "new", "pro", "max", "mini", "ultra", "plus", "case", "cover", "phone", "mobile"]):
-                        brands.add(brand)
+            for i, pattern in enumerate(brand_patterns):
+                try:
+                    matches = re.findall(pattern, title, re.IGNORECASE)
+                    for match in matches:
+                        brand = match.strip().lower()
+                        # Enhanced filtering
+                        if (brand and len(brand) >= 2 and 
+                            brand not in non_brand_words and
+                            not brand.isdigit() and  # Exclude pure numbers
+                            not re.match(r'^\d+\s*[a-z]*$', brand) and  # Exclude "250ml", "5kg", "1 l" etc
+                            not re.match(r'^[a-z]*\d+[a-z]*\d*', brand) and  # Exclude product codes like "ia260166334"
+                            not brand.endswith('gm') and not brand.endswith('ml')):  # Exclude quantities
+                            brands.add(brand)
+                            log.debug("Pattern %d extracted brand: '%s'", i+1, brand)
+                except Exception as pattern_error:
+                    log.debug("Pattern %d failed: %s", i+1, pattern_error)
+                    continue
                         
             # Also check first word of title (common for brand-first naming)
-            first_word = title.split()[0].lower() if title.split() else ""
-            if (first_word and len(first_word) >= 2 and 
-                first_word not in ["the", "and", "for", "with", "pack", "set", "new", "pro", "max", "mini", "ultra", "plus", "case", "cover", "phone", "mobile"]):
-                brands.add(first_word)
+            words = title.split()
+            if words:
+                first_word = words[0].lower()
+                if (first_word and len(first_word) >= 2 and 
+                    first_word not in non_brand_words and
+                    not first_word.isdigit() and
+                    not re.match(r'^\d+\s*[a-z]*$', first_word) and
+                    not re.match(r'^[a-z]*\d+[a-z]*\d*', first_word) and
+                    not first_word.endswith('gm') and not first_word.endswith('ml')):
+                    brands.add(first_word)
+                    log.debug("First word extracted: '%s'", first_word)
         
         # Convert to sorted list and limit to max_brands
         brand_list = sorted(list(brands))[:max_brands]

@@ -271,6 +271,195 @@ async def scrape_product_data(asin: str) -> dict:
         raise
 
 
+async def scrape_amazon_search(search_query: str, max_results: int = 20) -> list[dict]:
+    """Scrape Amazon search results for product data using Playwright.
+    
+    Args:
+    ----
+        search_query: Search keywords for Amazon
+        max_results: Maximum number of results to return
+        
+    Returns:
+    -------
+        List of dictionaries with title, price, image, asin
+        
+    """
+    # Encode search query for URL
+    from urllib.parse import quote_plus
+    search_url = f"https://www.amazon.in/s?k={quote_plus(search_query)}"
+    
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-web-security",
+                    "--disable-features=VizDisplayCompositor",
+                ]
+            )
+            
+            # Prepare headers with optional cookies
+            from bot.config import settings
+            
+            headers = {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
+            
+            # Add cookies if available
+            amazon_cookies = getattr(settings, 'AMAZON_COOKIES', None)
+            if amazon_cookies:
+                headers["Cookie"] = amazon_cookies
+                log.debug("Using Amazon cookies for enhanced search access")
+            
+            # Create context with realistic browser settings
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080},
+                geolocation={"longitude": 77.2090, "latitude": 28.6139},  # Delhi, India
+                permissions=["geolocation"],
+                extra_http_headers=headers,
+            )
+            
+            page = await context.new_page()
+            
+            log.info("Scraping Amazon search results for: %s", search_query)
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_load_state("networkidle", timeout=20000)
+            
+            # Check for captcha or bot detection
+            if await page.locator("form[action*='validateCaptcha']").count() > 0:
+                log.warning("Captcha required for search: %s", search_query)
+                await browser.close()
+                return []
+                
+            # Find product containers - various selectors for different layouts
+            product_selectors = [
+                "[data-component-type='s-search-result']",
+                ".s-result-item[data-asin]",
+                ".s-result-item",
+                ".sg-col-inner .s-widget-container",
+            ]
+            
+            products = []
+            for selector in product_selectors:
+                product_elements = page.locator(selector)
+                if await product_elements.count() > 0:
+                    log.debug("Found products with selector: %s", selector)
+                    break
+            else:
+                log.warning("No products found for search: %s", search_query)
+                await browser.close()
+                return []
+            
+            # Extract product data
+            count = min(await product_elements.count(), max_results)
+            log.debug("Processing %d search results", count)
+            
+            for i in range(count):
+                try:
+                    product_elem = product_elements.nth(i)
+                    
+                    # Extract ASIN
+                    asin = await product_elem.get_attribute("data-asin")
+                    if not asin:
+                        continue
+                    
+                    # Extract title
+                    title_selectors = [
+                        "h2 a span",
+                        "h2 span",
+                        ".a-size-medium",
+                        ".a-size-base-plus",
+                        "[data-cy='title-recipe-title']",
+                        "a .a-text-normal",
+                    ]
+                    
+                    title = None
+                    for title_sel in title_selectors:
+                        try:
+                            title_elem = product_elem.locator(title_sel).first
+                            if await title_elem.count() > 0:
+                                title = await title_elem.text_content()
+                                if title and title.strip():
+                                    title = title.strip()
+                                    break
+                        except Exception:
+                            continue
+                    
+                    # Extract price
+                    price_selectors = [
+                        ".a-price-whole",
+                        ".a-price .a-offscreen",
+                        ".a-price-symbol + .a-price-whole",
+                        "[data-cy='price-recipe-price']",
+                        ".a-size-base.a-color-price",
+                    ]
+                    
+                    price = None
+                    for price_sel in price_selectors:
+                        try:
+                            price_elem = product_elem.locator(price_sel).first
+                            if await price_elem.count() > 0:
+                                price_text = await price_elem.text_content()
+                                if price_text:
+                                    # Extract numeric price
+                                    import re
+                                    price_match = re.search(r'[\d,]+(?:\.\d{2})?', price_text.replace('₹', '').replace(',', ''))
+                                    if price_match:
+                                        price_val = float(price_match.group())
+                                        price = int(price_val * 100)  # Convert to paise
+                                        break
+                        except Exception:
+                            continue
+                    
+                    # Extract image
+                    image_selectors = [
+                        "img.s-image",
+                        ".a-dynamic-image",
+                        "img[data-src]",
+                        "img[src]",
+                    ]
+                    
+                    image_url = None
+                    for img_sel in image_selectors:
+                        try:
+                            img_elem = product_elem.locator(img_sel).first
+                            if await img_elem.count() > 0:
+                                image_url = await img_elem.get_attribute("src") or await img_elem.get_attribute("data-src")
+                                if image_url and image_url.startswith("http"):
+                                    break
+                        except Exception:
+                            continue
+                    
+                    if title:  # Only add if we have at least a title
+                        products.append({
+                            "asin": asin,
+                            "title": title,
+                            "price": price,
+                            "image": image_url or "https://m.media-amazon.com/images/I/81.png",
+                        })
+                        
+                except Exception as e:
+                    log.debug("Error processing search result %d: %s", i, e)
+                    continue
+            
+            await browser.close()
+            
+            log.info("Successfully scraped %d products for search: %s", len(products), search_query)
+            return products
+            
+    except Exception as e:
+        log.error("Amazon search scraping failed for '%s': %s", search_query, e)
+        return []
+
+
 async def scrape_price(asin: str) -> int:
     """Scrape product price from Amazon page (compatibility function).
 
