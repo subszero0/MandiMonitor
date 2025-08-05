@@ -27,6 +27,9 @@ def build_brand_buttons(brands: list[str]) -> InlineKeyboardMarkup:
         ]
         rows.append(row)
 
+    # Add skip option
+    rows.append([InlineKeyboardButton("Skip", callback_data="brand:skip")])
+
     return InlineKeyboardMarkup(rows)
 
 

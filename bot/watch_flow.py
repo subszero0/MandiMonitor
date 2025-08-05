@@ -14,10 +14,11 @@ from .models import User, Watch
 from .paapi_wrapper import get_item, search_products
 from .ui_helpers import build_brand_buttons, build_discount_buttons, build_price_buttons, build_mode_buttons
 from .watch_parser import parse_watch, validate_watch_data
+import re
 
 log = logging.getLogger(__name__)
 
-# Common brand list for buttons
+# Common brand list for buttons (fallback)
 COMMON_BRANDS = [
     "samsung",
     "lg",
@@ -31,6 +32,81 @@ COMMON_BRANDS = [
     "vivo",
     "xiaomi",
 ]
+
+
+async def get_dynamic_brands(search_query: str, max_brands: int = 9) -> list[str]:
+    """Get relevant brands from Amazon search results for the given query.
+    
+    Args:
+    ----
+        search_query: User's search query 
+        max_brands: Maximum number of brands to return
+        
+    Returns:
+    -------
+        List of brand names relevant to the search query
+        
+    """
+    try:
+        log.info("Fetching dynamic brands for query: %s", search_query)
+        
+        # Search for products related to the query
+        search_results = await search_products(search_query, max_results=20)
+        
+        if not search_results:
+            log.warning("No search results for dynamic brand extraction: %s", search_query)
+            return COMMON_BRANDS[:max_brands]
+        
+        # Extract potential brands from product titles
+        brands = set()
+        
+        # Common brand extraction patterns
+        brand_patterns = [
+            # Brand at start: "Samsung Galaxy S24"
+            r"^([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)\s+",
+            # Brand in parentheses: "Phone Case (Apple iPhone)"
+            r"\(([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)\)",
+            # Brand with "by": "Polish by 3M"
+            r"by\s+([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)",
+            # Common separators: "Brand - Product" or "Brand | Product"
+            r"^([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)?)\s*[-|]\s*",
+        ]
+        
+        for product in search_results:
+            title = product.get("title", "").strip()
+            if not title:
+                continue
+                
+            # Try each pattern to extract brand
+            for pattern in brand_patterns:
+                matches = re.findall(pattern, title, re.IGNORECASE)
+                for match in matches:
+                    brand = match.strip().lower()
+                    # Filter out common non-brand words
+                    if (brand and len(brand) >= 2 and 
+                        brand not in ["the", "and", "for", "with", "pack", "set", "new", "pro", "max", "mini", "ultra", "plus", "case", "cover", "phone", "mobile"]):
+                        brands.add(brand)
+                        
+            # Also check first word of title (common for brand-first naming)
+            first_word = title.split()[0].lower() if title.split() else ""
+            if (first_word and len(first_word) >= 2 and 
+                first_word not in ["the", "and", "for", "with", "pack", "set", "new", "pro", "max", "mini", "ultra", "plus", "case", "cover", "phone", "mobile"]):
+                brands.add(first_word)
+        
+        # Convert to sorted list and limit to max_brands
+        brand_list = sorted(list(brands))[:max_brands]
+        
+        if brand_list:
+            log.info("Extracted %d dynamic brands for '%s': %s", len(brand_list), search_query, brand_list)
+            return brand_list
+        else:
+            log.warning("No valid brands extracted, using fallback for: %s", search_query)
+            return COMMON_BRANDS[:max_brands]
+            
+    except Exception as e:
+        log.error("Error fetching dynamic brands for '%s': %s", search_query, e)
+        # Fallback to common brands
+        return COMMON_BRANDS[:max_brands]
 
 
 async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,7 +195,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Handle different callback types
     if query.data.startswith("brand:"):
         brand = query.data.split(":", 1)[1]
-        parsed_data["brand"] = brand
+        if brand == "skip":
+            parsed_data["brand"] = None
+        else:
+            parsed_data["brand"] = brand
         log.info("User %s selected brand: %s", update.effective_user.id, brand)
 
     elif query.data.startswith("disc:"):
@@ -205,7 +284,18 @@ async def _ask_for_missing_field(
     """
     if field == "brand":
         text = "🏷️ *Choose a brand:*\n\nSelect the brand you're looking for:"
-        keyboard = build_brand_buttons(COMMON_BRANDS)
+        
+        # Get dynamic brands based on search query if available
+        search_query = context.user_data.get("pending_watch", {}).get("keywords", "")
+        if search_query:
+            try:
+                dynamic_brands = await get_dynamic_brands(search_query)
+                keyboard = build_brand_buttons(dynamic_brands)
+            except Exception as e:
+                log.warning("Failed to get dynamic brands for '%s': %s, using fallback", search_query, e)
+                keyboard = build_brand_buttons(COMMON_BRANDS)
+        else:
+            keyboard = build_brand_buttons(COMMON_BRANDS)
 
     elif field == "discount":
         text = "💸 *Minimum discount:*\n\nWhat's the minimum discount you want to be notified about?"

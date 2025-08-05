@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ADMIN_PASS: str = "changeme"
     SENTRY_DSN: str | None = None
     TIMEZONE: str = "Asia/Kolkata"
+    AMAZON_COOKIES: str | None = None  # Optional cookies for enhanced scraping
 
 
 try:
