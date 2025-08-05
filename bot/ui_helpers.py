@@ -61,22 +61,30 @@ def build_discount_buttons() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def build_price_buttons() -> InlineKeyboardMarkup:
-    """Build inline keyboard with common price ranges.
+def build_price_buttons(price_ranges: list[tuple[str, int]] = None) -> InlineKeyboardMarkup:
+    """Build inline keyboard with price range options.
+
+    Args:
+    ----
+        price_ranges: List of (display_text, price_value) tuples. If None, uses default ranges.
 
     Returns
     -------
         InlineKeyboardMarkup with price range options
 
     """
-    prices = [
-        ("Under ₹10k", 10000),
-        ("Under ₹25k", 25000),
-        ("Under ₹50k", 50000),
-        ("Under ₹75k", 75000),
-        ("Under ₹1L", 100000),
-        ("Skip", 0),
-    ]
+    if price_ranges is None:
+        # Default price ranges (fallback)
+        price_ranges = [
+            ("Under ₹10k", 10000),
+            ("Under ₹25k", 25000),
+            ("Under ₹50k", 50000),
+            ("Under ₹75k", 75000),
+            ("Under ₹1L", 100000),
+        ]
+    
+    # Add skip option
+    prices = price_ranges + [("Skip", 0)]
 
     rows = []
     for i in range(0, len(prices), 2):

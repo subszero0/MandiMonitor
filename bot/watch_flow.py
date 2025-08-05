@@ -109,6 +109,114 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9) -> list[str
         return COMMON_BRANDS[:max_brands]
 
 
+async def get_dynamic_price_ranges(search_query: str) -> list[tuple[str, int]]:
+    """Get relevant price ranges from Amazon search results for the given query.
+    
+    Args:
+    ----
+        search_query: User's search query 
+        
+    Returns:
+    -------
+        List of (display_text, price_value) tuples for price range buttons
+        
+    """
+    try:
+        log.info("Fetching dynamic price ranges for query: %s", search_query)
+        
+        # Search for products related to the query
+        search_results = await search_products(search_query, max_results=20)
+        
+        if not search_results:
+            log.warning("No search results for dynamic price extraction: %s", search_query)
+            return _get_default_price_ranges()
+        
+        # Extract prices from search results
+        prices = []
+        
+        for product in search_results:
+            price = product.get("price")
+            if price and isinstance(price, (int, float)) and price > 0:
+                # Convert to rupees if in paise
+                price_rs = price / 100 if price > 10000 else price
+                if 10 <= price_rs <= 1000000:  # Reasonable price range
+                    prices.append(int(price_rs))
+        
+        if not prices:
+            log.warning("No valid prices found for '%s', using default ranges", search_query)
+            return _get_default_price_ranges()
+        
+        # Sort prices to analyze distribution
+        prices.sort()
+        log.debug("Found %d prices for '%s': %s", len(prices), search_query, prices[:10])
+        
+        # Remove outliers (bottom 10% and top 10%)
+        if len(prices) >= 10:
+            start_idx = len(prices) // 10
+            end_idx = len(prices) - (len(prices) // 10)
+            prices = prices[start_idx:end_idx]
+        
+        # Generate price ranges based on distribution
+        min_price = prices[0]
+        max_price = prices[-1]
+        
+        # Create 4-5 meaningful price brackets
+        price_ranges = []
+        
+        if max_price <= 1500:
+            # Low-priced items (under ₹1500) - car polish, accessories
+            brackets = [300, 500, 800, 1200]
+        elif max_price <= 5000:
+            # Mid-priced items (₹1500-5000) - gadgets, tools
+            brackets = [1000, 2000, 3000, 5000]
+        elif max_price <= 25000:
+            # Higher-priced items (₹5000-25000) - appliances, electronics
+            brackets = [5000, 10000, 15000, 25000]
+        elif max_price <= 100000:
+            # Premium items (₹25000-100000) - phones, laptops
+            brackets = [25000, 50000, 75000, 100000]
+        else:
+            # Luxury items (₹100000+) - high-end electronics
+            brackets = [100000, 200000, 500000, 1000000]
+        
+        # Filter brackets to only include relevant ranges
+        relevant_brackets = []
+        for bracket in brackets:
+            if bracket >= min_price * 0.8:  # Include ranges that make sense
+                relevant_brackets.append(bracket)
+                if len(relevant_brackets) >= 4:  # Limit to 4 ranges
+                    break
+        
+        # Format price ranges
+        for price in relevant_brackets:
+            if price >= 100000:
+                display = f"Under ₹{price//100000}L"
+            elif price >= 1000:
+                display = f"Under ₹{price//1000}k"
+            else:
+                display = f"Under ₹{price}"
+            price_ranges.append((display, price))
+        
+        log.info("Generated %d dynamic price ranges for '%s': %s", 
+                len(price_ranges), search_query, [r[0] for r in price_ranges])
+        
+        return price_ranges
+        
+    except Exception as e:
+        log.error("Error fetching dynamic price ranges for '%s': %s", search_query, e)
+        return _get_default_price_ranges()
+
+
+def _get_default_price_ranges() -> list[tuple[str, int]]:
+    """Get default price ranges as fallback."""
+    return [
+        ("Under ₹10k", 10000),
+        ("Under ₹25k", 25000), 
+        ("Under ₹50k", 50000),
+        ("Under ₹1L", 100000),
+    ]
+
+
 async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /watch command to start watch creation flow.
 
@@ -303,7 +411,18 @@ async def _ask_for_missing_field(
 
     elif field == "price":
         text = "💰 *Maximum price:*\n\nWhat's your budget for this product?"
-        keyboard = build_price_buttons()
+        
+        # Get dynamic price ranges based on search query if available
+        search_query = context.user_data.get("pending_watch", {}).get("keywords", "")
+        if search_query:
+            try:
+                dynamic_ranges = await get_dynamic_price_ranges(search_query)
+                keyboard = build_price_buttons(dynamic_ranges)
+            except Exception as e:
+                log.warning("Failed to get dynamic price ranges for '%s': %s, using fallback", search_query, e)
+                keyboard = build_price_buttons()
+        else:
+            keyboard = build_price_buttons()
 
     elif field == "mode":
         text = "⏰ *Monitoring mode:*\n\nHow often would you like to check for deals?"
