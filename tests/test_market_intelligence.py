@@ -378,3 +378,4 @@ class TestMarketIntelligenceIntegration:
             prediction = await market_intel.predict_price_movement("B0TEST123", 30)
             assert "error" not in prediction
             assert "predicted_price" in prediction
+

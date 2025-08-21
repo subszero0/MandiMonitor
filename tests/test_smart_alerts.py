@@ -500,3 +500,4 @@ class TestSmartAlertsIntegration:
                         assert "caption" in result
                         assert "keyboard" in result
                         assert "🔥 **PREMIUM DEAL ALERT!** 🔥" in result["caption"]
+
