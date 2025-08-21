@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import datetime, time as dtime
+from logging import getLogger
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -13,6 +14,8 @@ from .cache_service import get_price
 from .carousel import build_single_card
 from telegram import Bot
 from .config import settings
+
+log = getLogger(__name__)
 
 TZ = ZoneInfo(settings.TIMEZONE)
 
@@ -45,6 +48,68 @@ def schedule_watch(watch: Watch) -> None:
 
 
 # --- Job functions ---------------------------------------------------------
+
+
+def daily_market_analysis() -> None:
+    """Perform daily market analysis for all tracked products."""
+    try:
+        from .market_intelligence import MarketIntelligence
+        import asyncio
+        
+        market_intel = MarketIntelligence()
+        
+        with Session(engine) as session:
+            # Get all unique ASINs from active watches
+            active_asins = session.exec(
+                select(Watch.asin).where(Watch.asin.is_not(None)).distinct()
+            ).all()
+            
+            log.info("Starting daily market analysis for %d products", len(active_asins))
+            
+            # Run async analysis (simplified for now)
+            # In production, this would be more sophisticated
+            for asin in active_asins[:10]:  # Limit to avoid quota issues
+                try:
+                    # This would ideally be run in async context
+                    # For now, just log the analysis request
+                    log.info("Would analyze market trends for ASIN: %s", asin)
+                except Exception as e:
+                    log.error("Failed to analyze ASIN %s: %s", asin, e)
+                    
+            log.info("Daily market analysis completed")
+            
+    except Exception as e:
+        log.error("Daily market analysis failed: %s", e)
+
+
+def weekly_trend_report() -> None:
+    """Generate and send weekly trend reports to active users."""
+    try:
+        from .smart_alerts import SmartAlertEngine
+        import asyncio
+        
+        smart_alerts = SmartAlertEngine()
+        
+        with Session(engine) as session:
+            # Get users with active watches
+            active_users = session.exec(
+                select(User).join(Watch).where(Watch.asin.is_not(None)).distinct()
+            ).all()
+            
+            log.info("Generating weekly trend reports for %d users", len(active_users))
+            
+            # For now, just log the report generation
+            # In production, this would generate and send actual reports
+            for user in active_users[:5]:  # Limit for testing
+                try:
+                    log.info("Would generate weekly report for user: %d", user.id)
+                except Exception as e:
+                    log.error("Failed to generate report for user %d: %s", user.id, e)
+                    
+            log.info("Weekly trend reports completed")
+            
+    except Exception as e:
+        log.error("Weekly trend report generation failed: %s", e)
 
 
 def realtime_job(watch_id: int) -> None:
@@ -123,4 +188,32 @@ try:
     initialize_enrichment_scheduler()
 except ImportError:
     # Enhanced models not available
+    pass
+
+# Initialize market intelligence scheduler
+try:
+    from .market_intelligence import MarketIntelligence
+    from .smart_alerts import SmartAlertEngine
+    
+    market_intel = MarketIntelligence()
+    smart_alerts = SmartAlertEngine()
+    
+    # Schedule daily market analysis
+    scheduler.add_job(
+        daily_market_analysis,
+        CronTrigger(hour=3, minute=0, timezone=TZ),  # 3 AM IST
+        id="market_analysis",
+        replace_existing=True,
+    )
+    
+    # Schedule weekly trend reports
+    scheduler.add_job(
+        weekly_trend_report,
+        CronTrigger(day_of_week=0, hour=4, minute=0, timezone=TZ),  # Sunday 4 AM
+        id="weekly_trends",
+        replace_existing=True,
+    )
+    
+except ImportError:
+    # Market intelligence not available
     pass

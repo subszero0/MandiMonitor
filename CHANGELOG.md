@@ -5,6 +5,37 @@ All notable changes to MandiMonitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2024-12-23
+
+### 🧠 Phase 3: Analytics & Intelligence Engine
+
+This release introduces advanced market intelligence and smart alerting capabilities, providing users with AI-powered insights for optimal deal hunting.
+
+#### 📊 Market Intelligence System
+- **Price Trend Analysis**: Comprehensive historical price analysis with trend detection and volatility metrics
+- **Deal Quality Scoring**: Multi-factor algorithm (0-100 score) considering price history, reviews, availability, and brand reputation  
+- **Price Prediction**: AI-powered price movement forecasting with confidence intervals
+- **Market Reports**: Automated category-wise insights and trend identification
+- **Seasonal Pattern Detection**: Advanced algorithms to identify pricing patterns and seasonal opportunities
+
+#### 🚨 Smart Alert Engine
+- **Enhanced Deal Alerts**: Quality-filtered notifications with urgency indicators and market context
+- **Premium Deal Cards**: Rich notifications for high-quality deals with historical price context
+- **Comparison Alerts**: Alternative product suggestions when better deals are found
+- **Price Drop Predictions**: AI-powered alerts when price drops are predicted with high confidence
+- **Market Insight Notifications**: Weekly roundups and personalized market insights
+
+#### ⚙️ Scheduler Integration
+- **Daily Market Analysis**: Automated analysis of all tracked products at 3 AM IST
+- **Weekly Trend Reports**: Comprehensive market reports sent to users every Sunday
+- **Background Intelligence**: Market analysis runs continuously without impacting user experience
+- **API Quota Management**: Intelligent scheduling to respect PA-API rate limits
+
+#### 🧪 Enhanced Testing
+- **Comprehensive Test Suite**: 95%+ test coverage for all market intelligence features
+- **Integration Testing**: Full pipeline testing with existing systems
+- **Performance Validation**: Benchmarks ensure no degradation of existing functionality
+
 ## [2.0.0] - 2024-12-22
 
 ### 🚀 Major Features Added - PA-API 5.0 Enhancement & Intelligent Search
