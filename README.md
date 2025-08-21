@@ -28,6 +28,7 @@ Telegram bot that hunts India-specific e-commerce deals and pings you when price
 **Security Audit Phase SA6 (CI/CD Pipeline Security)** ✅ **COMPLETED**
 **Security Audit Phase SA7 (Monitoring & Incident Response)** ✅ **COMPLETED**
 **Security Audit Phase SA8 (Compliance & Security Disclosure)** ✅ **COMPLETED**
+**PA-API Phase 5 (Advanced Business Features)** ✅ **COMPLETED**
 
 ## 🚀 Quick Start
 
@@ -192,6 +193,9 @@ docker compose up -d
 - `bot/affiliate.py` - Affiliate URL generation with tracking parameters
 - `bot/admin_app.py` - Flask admin interface with basic auth and CSV export
 - `bot/monitoring.py` - Sentry error tracking and health monitoring
+- `bot/revenue_optimization.py` - A/B testing and conversion tracking for affiliate optimization
+- `bot/admin_analytics.py` - Business intelligence dashboard and user segmentation analysis
+- `bot/admin.py` - Enhanced admin interface with real-time analytics and performance metrics
 - `bot/log_config.py` - Structured logging configuration with PII filtering
 - `scripts/backup_db.sh` - Automated database backup script
 - `scripts/setup_oidc.sh` - GitHub OIDC provider and IAM role setup script
@@ -214,6 +218,8 @@ docker compose up -d
 - `tests/test_affiliate.py` - Affiliate URL and click tracking tests
 - `tests/test_admin.py` - Admin interface authentication and CSV tests
 - `tests/test_health.py` - Health endpoint monitoring tests
+- `tests/test_revenue_optimization.py` - Revenue optimization and A/B testing unit tests
+- `tests/test_admin_analytics.py` - Business analytics and dashboard functionality tests
 - `tests/integration/test_loki_push.py` - Loki integration and structured logging tests
 - `docs/beta_test_plan.md` - Comprehensive beta testing strategy and framework
 - `docs/beta_test_templates.md` - Communication templates and feedback collection tools
