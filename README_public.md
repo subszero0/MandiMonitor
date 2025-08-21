@@ -1,21 +1,54 @@
-# MandiMonitor Bot
+# MandiMonitor Bot 2.0
 
-A Telegram bot for monitoring product prices and deals.
+An intelligent Telegram bot for comprehensive e-commerce price monitoring and deal discovery, powered by Amazon PA-API 5.0.
 
-## Features
+## ✨ Features
 
-- Price monitoring for e-commerce products
-- Telegram integration for notifications
-- Database storage for user preferences
-- Admin interface for management
+### 🎯 Intelligent Price Monitoring
+- **Smart Watch Creation**: AI-powered watch creation with intent detection and parameter optimization
+- **Advanced Price Tracking**: 24-hour cached monitoring with comprehensive product data
+- **Real-time Alerts**: 10-minute interval monitoring with intelligent quiet hours
+- **Market Intelligence**: Price pattern analysis, deal quality scoring, and trend prediction
 
-## Tech Stack
+### 🧠 AI-Powered Search & Discovery
+- **Category-Based Intelligence**: 20+ Indian marketplace categories with smart suggestions
+- **Intent-Driven Search**: Understands user intent (deal hunting, comparison, feature search)
+- **Personalized Results**: User history-based ranking and recommendations
+- **Advanced Filtering**: Price, brand, rating, discount, availability, Prime eligibility
 
-- Python 3.12+
-- FastAPI
-- SQLModel
-- Docker
-- Telegram Bot API
+### 📊 Rich Product Data
+- **Comprehensive Information**: Features, specifications, customer reviews, availability
+- **Product Variations**: Automatic variant detection and comparison
+- **Market Analysis**: Historical pricing, discount patterns, seasonal trends
+- **Quality Scoring**: Multi-factor deal quality assessment (0-100 scale)
+
+### 🚀 Enhanced User Experience
+- **Intelligent Suggestions**: Smart parameter recommendations based on market data
+- **Alternative Discovery**: Find similar products and better deals
+- **Watch Optimization**: Performance analysis and parameter tuning for existing watches
+- **Rich Carousels**: Beautiful product cards with detailed information
+
+## 🛠️ Tech Stack
+
+### Core Technologies
+- **Python 3.12+** with type hints and async/await
+- **FastAPI** for high-performance web services
+- **SQLModel** for type-safe database operations
+- **Amazon PA-API 5.0** for comprehensive product data
+- **Telegram Bot API** for user interaction
+
+### AI & Intelligence
+- **Smart Search Engine** with intent analysis and personalization
+- **Category Management** with Amazon browse node hierarchy
+- **Machine Learning** for deal quality scoring and price prediction
+- **Natural Language Processing** for query understanding
+
+### Infrastructure
+- **Docker** with multi-stage builds for production deployment
+- **APScheduler** for background job processing
+- **Redis** for advanced caching and rate limiting
+- **SQLite/PostgreSQL** for data persistence
+- **Playwright** for intelligent scraping fallback
 
 ## Quick Start
 
