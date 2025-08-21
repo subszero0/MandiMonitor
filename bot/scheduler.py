@@ -116,3 +116,11 @@ def _send_single_card(
 
 # Start scheduler immediately on module import
 scheduler.start()
+
+# Initialize enrichment scheduler if enhanced models are enabled
+try:
+    from .enrichment_scheduler import initialize_enrichment_scheduler
+    initialize_enrichment_scheduler()
+except ImportError:
+    # Enhanced models not available
+    pass

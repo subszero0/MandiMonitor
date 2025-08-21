@@ -133,7 +133,7 @@ def _sync_search_products(keywords: str, max_results: int) -> List[Dict]:
     
     try:
         # Search for products
-        results = api.search_items(keywords=keywords, max_results=max_results)
+        results = api.search_items(keywords=keywords, item_count=max_results)
         
         if not results:
             log.info("No search results found for keywords: %s", keywords)

@@ -13,6 +13,17 @@ class Settings(BaseSettings):
     SENTRY_DSN: str | None = None
     TIMEZONE: str = "Asia/Kolkata"
     AMAZON_COOKIES: str | None = None  # Optional cookies for enhanced scraping
+    
+    # Enhanced models configuration
+    ENABLE_ENHANCED_MODELS: bool = True
+    JSON_FIELD_MAX_SIZE: int = 65535  # Maximum size for JSON fields
+    PRICE_HISTORY_RETENTION_DAYS: int = 365  # Keep price history for 1 year
+    ENRICHMENT_BATCH_SIZE: int = 10  # Batch size for data enrichment
+    
+    # PA-API rate limiting configuration
+    PAAPI_RATE_LIMIT_PER_SECOND: int = 1
+    PAAPI_BURST_LIMIT: int = 10
+    PAAPI_BURST_WINDOW_SECONDS: int = 10
 
 
 try:
