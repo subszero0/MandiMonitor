@@ -1,7 +1,7 @@
 """Natural Language Processing Handler for enhanced text parsing and intent detection."""
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from logging import getLogger
 from typing import Dict, List, Optional, Tuple
 
@@ -51,7 +51,7 @@ class NaturalLanguageHandler:
                 **enhanced_parse,
                 "nlp_confidence": confidence,
                 "suggestions": suggestions,
-                "processed_at": datetime.utcnow(),
+                "processed_at": datetime.now(timezone.utc),
             }
 
         except Exception as e:
@@ -364,7 +364,7 @@ class NaturalLanguageHandler:
             "portable": re.compile(r"\b(portable|lightweight|travel|compact|mini)\b", re.I),
             "wireless": re.compile(r"\b(wireless|bluetooth|wifi|cordless)\b", re.I),
             "waterproof": re.compile(r"\b(waterproof|water resistant|ip67|ip68)\b", re.I),
-            "fast_charging": re.compile(r"\b(fast charg|quick charg|rapid charg)\b", re.I),
+            "fast_charging": re.compile(r"\b(fast charg|quick charg|rapid charg|fast charging|quick charging|rapid charging)\b", re.I),
         }
 
     def _build_comparison_indicators(self) -> List[str]:
@@ -379,19 +379,28 @@ class NaturalLanguageHandler:
     ) -> float:
         """Calculate confidence for specific intent detection."""
         try:
-            base_confidence = len(matches) * 0.2  # Base score per match
+            base_confidence = len(matches) * 0.3  # Increased base score per match
             
             # Boost confidence for specific patterns
-            if intent_type == "search_product" and any(word in message for word in ["find", "search", "looking"]):
-                base_confidence += 0.3
-            elif intent_type == "create_watch" and any(word in message for word in ["watch", "alert", "notify"]):
-                base_confidence += 0.3
-            elif intent_type == "compare_products" and any(word in message for word in ["compare", "vs", "versus"]):
+            message_lower = message.lower()
+            if intent_type == "search_product" and any(word in message_lower for word in ["find", "search", "looking", "show", "need"]):
+                base_confidence += 0.4
+            elif intent_type == "create_watch" and any(word in message_lower for word in ["watch", "alert", "notify", "track", "monitor"]):
+                base_confidence += 0.4
+            elif intent_type == "compare_products" and any(word in message_lower for word in ["compare", "vs", "versus", "difference", "which is better"]):
+                base_confidence += 0.5
+            elif intent_type == "price_inquiry" and any(word in message_lower for word in ["price", "cost", "how much"]):
+                base_confidence += 0.4
+            elif intent_type == "deal_hunting" and any(word in message_lower for word in ["deal", "discount", "offer", "cheap", "best price"]):
                 base_confidence += 0.4
 
             # Message length factor (longer messages tend to be more specific)
-            length_factor = min(1.0, len(message.split()) / 10.0)
-            base_confidence += length_factor * 0.2
+            length_factor = min(1.0, len(message.split()) / 8.0)
+            base_confidence += length_factor * 0.15
+
+            # Brand or product mention increases confidence
+            if any(brand in message_lower for brand in ["samsung", "apple", "iphone", "macbook", "dell", "hp", "sony"]):
+                base_confidence += 0.2
 
             return min(1.0, base_confidence)
 
@@ -564,7 +573,7 @@ class NaturalLanguageHandler:
         """Detect type of comparison requested."""
         message_lower = message.lower()
         
-        if "features" in message_lower or "specs" in message_lower:
+        if any(word in message_lower for word in ["features", "specs", "camera", "battery", "display", "performance"]):
             return "feature_comparison"
         elif "price" in message_lower or "cost" in message_lower:
             return "price_comparison"
@@ -652,6 +661,6 @@ class NaturalLanguageHandler:
         # Extract brand preference
         brand_match = PAT_BRAND.search(message)
         if brand_match:
-            preferences["preferred_brand"] = brand_match.group(1)
+            preferences["preferred_brand"] = brand_match.group(1).lower()
         
         return preferences
