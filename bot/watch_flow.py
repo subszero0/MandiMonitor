@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 from .cache_service import engine, get_price
 from .carousel import build_single_card
 from .models import User, Watch
-from .paapi_wrapper import get_item, search_products
+from .paapi_enhanced import get_item_detailed, search_items_advanced
 from .ui_helpers import build_brand_buttons, build_discount_buttons, build_price_buttons, build_mode_buttons
 from .watch_parser import parse_watch, validate_watch_data
 import re
@@ -50,8 +50,22 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9) -> list[str
     try:
         log.info("Fetching dynamic brands for query: %s", search_query)
         
-        # Try PA-API first
-        search_results = await search_products(search_query, max_results=20)
+        # Try enhanced PA-API first
+        search_results = await search_items_advanced(
+            keywords=search_query, 
+            item_count=10, 
+            item_page=1,
+            priority="normal"
+        )
+        # Convert to expected format
+        search_results = [
+            {
+                "title": item.get("title", ""),
+                "asin": item.get("asin", ""),
+                "price": item.get("offers", {}).get("price")
+            }
+            for item in search_results
+        ]
         
         # If PA-API failed or returned no results, try scraper fallback
         if not search_results:
@@ -175,8 +189,22 @@ async def get_dynamic_price_ranges(search_query: str) -> list[tuple[str, int]]:
     try:
         log.info("Fetching dynamic price ranges for query: %s", search_query)
         
-        # Search for products related to the query
-        search_results = await search_products(search_query, max_results=20)
+        # Search for products related to the query using enhanced PA-API
+        search_results = await search_items_advanced(
+            keywords=search_query, 
+            item_count=10, 
+            item_page=1,
+            priority="normal"
+        )
+        # Convert to expected format for price extraction
+        search_results = [
+            {
+                "title": item.get("title", ""),
+                "asin": item.get("asin", ""),
+                "price": item.get("offers", {}).get("price")
+            }
+            for item in search_results
+        ]
         
         if not search_results:
             log.warning("No search results for dynamic price extraction: %s", search_query)
@@ -534,20 +562,24 @@ async def _finalize_watch(
             if not asin:
                 try:
                     log.info("No ASIN provided, attempting product search for: %s", watch_data["keywords"])
-                    search_results = await search_products(watch_data["keywords"], max_results=3)
+                    search_results = await search_items_advanced(
+                        keywords=watch_data["keywords"],
+                        item_count=3,
+                        priority="high"  # High priority for user watch creation
+                    )
                     if search_results:
                         # Filter results based on brand if specified
                         if watch_data.get("brand"):
                             brand_filtered = [
                                 product for product in search_results 
-                                if watch_data["brand"].lower() in product["title"].lower()
+                                if watch_data["brand"].lower() in product.get("title", "").lower()
                             ]
                             if brand_filtered:
                                 search_results = brand_filtered
                         
                         # Use the first result as the best match
                         best_match = search_results[0]
-                        asin = best_match["asin"]
+                        asin = best_match.get("asin")
                         log.info("Found ASIN %s for search: %s", asin, watch_data["keywords"])
                 except Exception as search_error:
                     log.warning("Product search failed for '%s': %s", watch_data["keywords"], search_error)
@@ -609,12 +641,12 @@ async def _finalize_watch(
                 price = None
                 
                 try:
-                    log.info("Trying PA-API for ASIN %s", asin)
-                    item_data = await get_item(asin)
+                    log.info("Trying enhanced PA-API for ASIN %s", asin)
+                    item_data = await get_item_detailed(asin, priority="high")
                     title = item_data.get("title", watch_data["keywords"])
-                    image_url = item_data.get("image", "https://m.media-amazon.com/images/I/81.png")
-                    price = item_data.get("price")
-                    log.info("PA-API succeeded for ASIN %s", asin)
+                    image_url = item_data.get("images", {}).get("large", "https://m.media-amazon.com/images/I/81.png")
+                    price = item_data.get("offers", {}).get("price")
+                    log.info("Enhanced PA-API succeeded for ASIN %s", asin)
                 except Exception as e:
                     log.warning("PA-API failed for ASIN %s: %s, trying scraper", asin, e)
                 

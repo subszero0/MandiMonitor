@@ -8,7 +8,7 @@ from sqlmodel import Session, create_engine, select
 
 from .errors import QuotaExceededError
 from .models import Cache
-from .paapi_wrapper import get_item
+from .paapi_enhanced import get_item_detailed
 from .scraper import scrape_price
 
 log = getLogger(__name__)
@@ -42,12 +42,16 @@ async def get_price_async(asin: str) -> int:
         # Try to fetch new price
         price = None
 
-        # First try PA-API
+        # First try enhanced PA-API
         try:
-            log.info("Fetching price via PA-API for ASIN: %s", asin)
-            item_data = await get_item(asin)
-            price = item_data["price"]
-            log.info("PA-API returned price for ASIN %s: %d paise", asin, price)
+            log.info("Fetching price via enhanced PA-API for ASIN: %s", asin)
+            item_data = await get_item_detailed(asin, priority="high")  # High priority for user requests
+            price = item_data.get("offers", {}).get("price")
+            if price:
+                log.info("Enhanced PA-API returned price for ASIN %s: %d paise", asin, price)
+            else:
+                log.warning("Enhanced PA-API returned no price for ASIN %s", asin)
+                price = None
         except QuotaExceededError:
             log.warning(
                 "PA-API quota exceeded for ASIN %s, falling back to scraper",
@@ -123,12 +127,16 @@ def get_price(asin: str) -> int:
         # Try to fetch new price
         price = None
 
-        # First try PA-API
+        # First try enhanced PA-API
         try:
-            log.info("Fetching price via PA-API for ASIN: %s", asin)
-            item_data = asyncio.run(get_item(asin))
-            price = item_data["price"]
-            log.info("PA-API returned price for ASIN %s: %d paise", asin, price)
+            log.info("Fetching price via enhanced PA-API for ASIN: %s", asin)
+            item_data = asyncio.run(get_item_detailed(asin, priority="high"))
+            price = item_data.get("offers", {}).get("price")
+            if price:
+                log.info("Enhanced PA-API returned price for ASIN %s: %d paise", asin, price)
+            else:
+                log.warning("Enhanced PA-API returned no price for ASIN %s", asin)
+                price = None
         except QuotaExceededError:
             log.warning(
                 "PA-API quota exceeded for ASIN %s, falling back to scraper",
