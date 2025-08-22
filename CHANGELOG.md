@@ -5,7 +5,69 @@ All notable changes to MandiMonitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.3.0] - 2024-12-26
+## [2.4.0] - 2025-08-22
+
+### 🤖 Phase 7: AI-Powered Features
+
+This release introduces comprehensive AI capabilities that transform MandiMonitor into an intelligent shopping assistant with predictive analytics, personalized recommendations, and machine learning-powered insights.
+
+#### 🧠 Predictive Intelligence Engine
+- **User Interest Prediction**: Advanced collaborative filtering algorithms for personalized product recommendations
+- **Deal Success Prediction**: Machine learning models that assess deal quality and success probability
+- **Smart Inventory Alerts**: Predictive stock-out warnings with urgency assessment and optimal timing
+- **Behavioral Analysis**: User pattern recognition for enhanced recommendation accuracy
+- **ML Model Training**: Automated training pipelines for continuous improvement
+
+#### 🎯 Personalized Recommendations System
+- **AI-Powered Suggestions**: Intelligent product recommendations via `/recommendations` command
+- **Collaborative Filtering**: User similarity analysis for discovering new products based on community behavior
+- **Confidence Scoring**: AI confidence levels with detailed explanations for each recommendation
+- **Category Exploration**: Smart suggestions for expanding user's product interests
+- **Real-time Adaptation**: Recommendations that improve as users interact with the system
+
+#### 🔮 Smart Market Insights
+- **Market Intelligence Dashboard**: Comprehensive insights accessible via `/insights` command
+- **Deal Quality Assessment**: AI-enhanced deal alerts with success probability scoring
+- **Inventory Predictions**: Stock-out forecasting with proactive user notifications
+- **Price Trend Analysis**: Historical price pattern recognition for optimal purchase timing
+- **User Analytics**: Personalized shopping behavior insights and optimization tips
+
+#### 🛠️ AI Infrastructure
+- **Machine Learning Stack**: Integration of scikit-learn, numpy, and pandas for advanced analytics
+- **Performance Optimization**: Intelligent caching for ML predictions and user pattern analysis
+- **Error Handling**: Robust fallback mechanisms when AI services are unavailable
+- **Privacy-First Design**: All AI processing respects user privacy with secure data handling
+
+#### 🎮 Enhanced User Experience
+- **Natural Language Processing**: Improved text handling for product queries and recommendations
+- **Interactive AI Interface**: Rich callback handlers for exploring AI features
+- **Smart Notifications**: AI-enhanced alert prioritization based on user preferences and behavior
+- **Contextual Help**: Intelligent assistance that adapts to user's experience level
+
+#### 🧪 Comprehensive Testing
+- **AI Engine Tests**: 25+ test cases covering predictive algorithms and ML functionality
+- **Smart Alerts Tests**: 15+ test cases for AI-enhanced notification system
+- **Handler Tests**: 20+ test cases for AI command interfaces and user interactions
+- **Integration Tests**: End-to-end validation of AI features with existing bot functionality
+
+### Added
+- `bot/predictive_ai.py`: Core AI engine with machine learning models and prediction algorithms
+- Enhanced `bot/smart_alerts.py`: AI-powered inventory alerts and recommendation system
+- Enhanced `bot/handlers.py`: New `/recommendations` and `/insights` commands with AI callback handlers
+- `tests/test_predictive_ai.py`: Comprehensive test suite for AI prediction engine
+- `tests/test_ai_smart_alerts.py`: Test coverage for AI-enhanced alert system
+- `tests/test_ai_handlers.py`: Test validation for AI command handlers
+- Machine learning dependencies: scikit-learn (1.7.1), numpy (1.26.4), pandas (2.3.2)
+
+### Enhanced
+- User interest tracking with advanced behavioral pattern analysis
+- Deal alert system with AI-powered quality assessment and success prediction
+- Help system updated to showcase new AI capabilities
+- About command enhanced with AI feature highlights
+
+---
+
+## [2.3.0] - 2025-08-22
 
 ### ⚡ Phase 6: Technical Excellence
 

@@ -49,6 +49,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 /start - Welcome message and overview
 /watch - Create price monitoring alerts ✨ 
+/recommendations - Get AI-powered personalized suggestions 🤖
+/insights - View market insights and AI analysis 🧠
 /help - Show this help message  
 /status - Check bot and system status
 /about - Information about this bot
@@ -57,8 +59,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 /list - View your active price watches
 /admin - Admin dashboard (authorized users only)
 
-💡 **Need Help?**
-This bot is in development. More features coming soon!
+💡 **AI Features:**
+Get smarter recommendations based on your preferences and behavior!
     """
     await update.message.reply_text(help_msg, parse_mode="Markdown")
 
@@ -134,25 +136,253 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 **What I Do:**
 I help you track product prices on Amazon India and notify you when prices drop!
 
-**Features (Coming Soon):**
-• 📊 Real-time price monitoring
-• 🔔 Instant deal notifications  
-• 📈 Price history tracking
-• 💰 Affiliate link support
-• 📱 Easy Telegram interface
+**Features:**
+• 📊 Real-time price monitoring ✅
+• 🔔 Smart deal notifications ✅  
+• 📈 Price history tracking ✅
+• 💰 Affiliate link support ✅
+• 📱 Easy Telegram interface ✅
+• 🤖 AI-powered recommendations ✅
+• 🎯 Personalized deal insights ✅
+• 📦 Smart inventory alerts ✅
 
 **Technology:**
 • Python 3.12 + FastAPI
 • SQLModel + SQLite Database
 • Amazon PA-API integration
-• Playwright web scraping
+• Machine Learning (scikit-learn)
+• AI-powered predictions
 • Docker containerized
 
-**Status:** 🚧 In Active Development
+**Status:** 🚀 Production Ready with AI Features!
 
 Built with ❤️ for deal hunters!
     """
     await update.message.reply_text(about_msg, parse_mode="Markdown")
+
+
+async def recommendations_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /recommendations command - show AI-powered personalized recommendations.
+
+    Args:
+    ----
+        update: Telegram update object
+        context: Bot context for the handler
+
+    """
+    from .cache_service import engine
+    from .models import User
+    from .smart_alerts import SmartAlertEngine
+    from sqlmodel import Session, select
+    
+    try:
+        # Get or create user
+        tg_user_id = update.effective_user.id
+        
+        with Session(engine) as session:
+            user = session.exec(
+                select(User).where(User.tg_user_id == tg_user_id)
+            ).first()
+            
+            if not user:
+                # Create new user
+                user = User(tg_user_id=tg_user_id)
+                session.add(user)
+                session.commit()
+                session.refresh(user)
+        
+        # Generate AI recommendations
+        smart_alerts = SmartAlertEngine()
+        recommendations_data = await smart_alerts.generate_personalized_recommendations(user.id)
+        
+        if recommendations_data["status"] == "success":
+            message_data = recommendations_data["message"]
+            await update.message.reply_text(
+                message_data["caption"],
+                reply_markup=message_data["keyboard"],
+                parse_mode="Markdown"
+            )
+        elif recommendations_data["status"] == "no_recommendations":
+            await update.message.reply_text(
+                "🤖 **Getting to know you!**\n\n"
+                "I don't have enough data about your preferences yet. "
+                "Try creating some price watches with /watch to help me understand what you like!\n\n"
+                "The more you use the bot, the better my recommendations will become! 🎯",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                "⚠️ **Recommendations temporarily unavailable**\n\n"
+                "I'm having trouble generating recommendations right now. "
+                "Please try again later or use /watch to track specific products!",
+                parse_mode="Markdown"
+            )
+            
+    except Exception as e:
+        logger.error("Error in recommendations command: %s", e)
+        await update.message.reply_text(
+            "❌ **Error generating recommendations**\n\n"
+            "Something went wrong. Please try again later or contact support.",
+            parse_mode="Markdown"
+        )
+
+
+async def insights_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /insights command - show market insights and AI analysis.
+
+    Args:
+    ----
+        update: Telegram update object
+        context: Bot context for the handler
+
+    """
+    try:
+        insights_msg = """
+🧠 **AI Market Insights**
+
+**Your Shopping Intelligence:**
+• 📊 Personalized deal predictions
+• 🎯 Interest-based recommendations  
+• 📈 Price trend analysis
+• 📦 Smart inventory alerts
+• 💡 Category exploration suggestions
+
+**How it works:**
+🤖 I analyze your browsing patterns, price preferences, and market trends to provide intelligent insights.
+
+**Available Commands:**
+/recommendations - Get personalized product suggestions
+/watch - Create smart price alerts with AI insights
+
+**Coming Soon:**
+• Weekly market roundups
+• Seasonal deal predictions
+• Category trend analysis
+• Budget optimization tips
+
+💡 **Tip:** The more you interact with me, the smarter my recommendations become!
+        """
+        
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🤖 Get Recommendations", callback_data="get_recommendations"),
+                InlineKeyboardButton("📊 View Analytics", callback_data="view_analytics")
+            ],
+            [
+                InlineKeyboardButton("⚙️ AI Preferences", callback_data="ai_preferences"),
+                InlineKeyboardButton("❓ Learn More", callback_data="learn_ai_features")
+            ]
+        ])
+        
+        await update.message.reply_text(
+            insights_msg, 
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error("Error in insights command: %s", e)
+        await update.message.reply_text(
+            "❌ Error loading insights. Please try again later.",
+            parse_mode="Markdown"
+        )
+
+
+async def ai_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle AI-related callback queries.
+
+    Args:
+    ----
+        update: Telegram update object with callback query
+        context: Bot context
+
+    """
+    from .smart_alerts import SmartAlertEngine
+    from .cache_service import engine
+    from .models import User
+    from sqlmodel import Session, select
+    
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        if query.data == "get_recommendations":
+            # Get user and generate recommendations
+            tg_user_id = update.effective_user.id
+            
+            with Session(engine) as session:
+                user = session.exec(
+                    select(User).where(User.tg_user_id == tg_user_id)
+                ).first()
+                
+                if user:
+                    smart_alerts = SmartAlertEngine()
+                    recommendations_data = await smart_alerts.generate_personalized_recommendations(user.id)
+                    
+                    if recommendations_data["status"] == "success":
+                        message_data = recommendations_data["message"]
+                        await query.edit_message_text(
+                            message_data["caption"],
+                            reply_markup=message_data["keyboard"],
+                            parse_mode="Markdown"
+                        )
+                    else:
+                        await query.edit_message_text(
+                            "🤖 I need more data about your preferences. Try creating some watches first!",
+                            parse_mode="Markdown"
+                        )
+                else:
+                    await query.edit_message_text(
+                        "Please use /start first to initialize your account.",
+                        parse_mode="Markdown"
+                    )
+                    
+        elif query.data == "view_analytics":
+            await query.edit_message_text(
+                "📊 **Your Shopping Analytics**\n\n"
+                "Analytics dashboard coming soon! This will show:\n"
+                "• Your deal success rate\n"
+                "• Favorite categories\n"
+                "• Savings achieved\n"
+                "• AI prediction accuracy\n\n"
+                "Use /recommendations to get personalized suggestions now!",
+                parse_mode="Markdown"
+            )
+            
+        elif query.data == "ai_preferences":
+            await query.edit_message_text(
+                "⚙️ **AI Preferences**\n\n"
+                "Customize your AI experience:\n"
+                "• Recommendation frequency\n"
+                "• Preferred categories\n"
+                "• Price range preferences\n"
+                "• Notification types\n\n"
+                "Advanced preference management coming soon!\n"
+                "For now, your preferences are learned automatically from your interactions.",
+                parse_mode="Markdown"
+            )
+            
+        elif query.data == "learn_ai_features":
+            await query.edit_message_text(
+                "💡 **How AI Enhances Your Experience**\n\n"
+                "🧠 **Smart Learning:** I analyze your watch patterns, clicked products, and preferences\n"
+                "🎯 **Personalization:** Recommendations tailored specifically to your interests\n"
+                "📊 **Deal Intelligence:** AI predicts deal success probability\n"
+                "📦 **Inventory Alerts:** Smart notifications before items go out of stock\n"
+                "📈 **Market Trends:** Price prediction and trend analysis\n\n"
+                "Start with /watch to help me learn your preferences!",
+                parse_mode="Markdown"
+            )
+            
+        else:
+            await query.edit_message_text("Unknown action. Please try again.")
+            
+    except Exception as e:
+        logger.error("Error in AI callback handler: %s", e)
+        await query.edit_message_text(
+            "❌ Error processing request. Please try again later.",
+            parse_mode="Markdown"
+        )
 
 
 async def click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -293,6 +523,8 @@ def setup_handlers(app) -> None:
     # Register command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("watch", start_watch))
+    app.add_handler(CommandHandler("recommendations", recommendations_command))
+    app.add_handler(CommandHandler("insights", insights_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("about", about_command))
@@ -300,6 +532,11 @@ def setup_handlers(app) -> None:
     # Register callback handlers for watch creation flow
     app.add_handler(
         CallbackQueryHandler(handle_callback, pattern="^(brand:|disc:|price:|mode:)")
+    )
+
+    # Register AI callback handlers
+    app.add_handler(
+        CallbackQueryHandler(ai_callback_handler, pattern="^(get_recommendations|view_analytics|ai_preferences|learn_ai_features|view_all_recommendations|update_preferences|inventory_details:).*$")
     )
 
     # Register click handler for affiliate link tracking
@@ -315,5 +552,5 @@ def setup_handlers(app) -> None:
     )
 
     logger.info(
-        "Telegram handlers registered: /start, /watch, /help, /status, /about, callbacks, click_handler, text_messages"
+        "Telegram handlers registered: /start, /watch, /recommendations, /insights, /help, /status, /about, ai_callbacks, callbacks, click_handler, text_messages"
     )

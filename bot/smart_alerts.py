@@ -13,6 +13,7 @@ from .config import settings
 from .enhanced_models import DealAlert
 from .market_intelligence import MarketIntelligence
 from .models import Watch
+from .predictive_ai import predictive_engine
 
 log = getLogger(__name__)
 
@@ -28,7 +29,7 @@ class SmartAlertEngine:
     async def generate_enhanced_deal_alert(
         self, watch: Watch, current_data: Dict
     ) -> Dict:
-        """Enhanced version of existing deal alerts with quality assessment.
+        """Enhanced version of existing deal alerts with quality assessment and AI predictions.
 
         Args:
         ----
@@ -47,8 +48,15 @@ class SmartAlertEngine:
                 watch.asin, current_data["price"]
             )
 
-            # Determine alert urgency
-            urgency = await self._calculate_urgency(deal_quality, current_data, watch)
+            # Get AI prediction for deal success
+            deal_prediction = await predictive_engine.predict_deal_success(
+                watch.asin, current_data["price"]
+            )
+
+            # Determine alert urgency (enhanced with AI insights)
+            urgency = await self._calculate_urgency_with_ai(
+                deal_quality, deal_prediction, current_data, watch
+            )
 
             # Get price trend context
             price_context = await self._get_price_context(
@@ -83,6 +91,7 @@ class SmartAlertEngine:
                 "urgency": urgency,
                 "price_context": price_context,
                 "recommendations": deal_quality.get("recommendations", []),
+                "ai_prediction": deal_prediction,
             }
 
         except Exception as e:
@@ -643,3 +652,226 @@ class UserPreferenceManager:
         except Exception as e:
             log.error("Failed to check notification permissions: %s", e)
             return True  # Default to allowing notifications
+
+    async def generate_smart_inventory_alert(self, asin: str) -> Dict:
+        """Generate smart inventory alerts using AI predictions.
+        
+        Args:
+        ----
+            asin: Product ASIN to analyze
+            
+        Returns:
+        -------
+            Dict with inventory alert data and AI insights
+        """
+        try:
+            log.info("Generating smart inventory alert for ASIN %s", asin)
+            
+            # Get AI prediction for inventory
+            inventory_prediction = await predictive_engine.predict_inventory_alerts(asin)
+            
+            if inventory_prediction.get("prediction") == "insufficient_data":
+                return {"status": "insufficient_data", "message": "Not enough data for prediction"}
+            
+            # Get product data for alert
+            with Session(engine) as session:
+                from .enhanced_models import Product
+                product = session.get(Product, asin)
+                
+                if not product:
+                    return {"status": "product_not_found", "message": "Product not found"}
+                
+                # Generate alert message based on urgency
+                urgency = inventory_prediction.get("urgency_level", "low")
+                alert_data = await self._build_inventory_alert_message(
+                    product, inventory_prediction, urgency
+                )
+                
+                return {
+                    "status": "success",
+                    "alert_data": alert_data,
+                    "prediction": inventory_prediction,
+                    "urgency": urgency,
+                    "should_send": urgency in ["high", "critical"]
+                }
+                
+        except Exception as e:
+            log.error("Error generating smart inventory alert for ASIN %s: %s", asin, e)
+            return {"status": "error", "message": str(e)}
+
+    async def generate_personalized_recommendations(self, user_id: int) -> Dict:
+        """Generate personalized product recommendations using AI.
+        
+        Args:
+        ----
+            user_id: User ID to generate recommendations for
+            
+        Returns:
+        -------
+            Dict with personalized recommendations and explanations
+        """
+        try:
+            log.info("Generating personalized recommendations for user %d", user_id)
+            
+            # Get AI-powered recommendations
+            recommendations = await predictive_engine.predict_user_interests(user_id, limit=10)
+            
+            if not recommendations:
+                return {"status": "no_recommendations", "message": "No recommendations available"}
+            
+            # Format recommendations for display
+            formatted_recs = []
+            for rec in recommendations:
+                formatted_rec = await self._format_recommendation_for_display(rec)
+                formatted_recs.append(formatted_rec)
+            
+            # Generate recommendation message
+            message = await self._build_recommendations_message(formatted_recs)
+            
+            return {
+                "status": "success",
+                "recommendations": formatted_recs,
+                "message": message,
+                "count": len(formatted_recs)
+            }
+            
+        except Exception as e:
+            log.error("Error generating personalized recommendations for user %d: %s", user_id, e)
+            return {"status": "error", "message": str(e)}
+
+    async def _calculate_urgency_with_ai(
+        self, deal_quality: Dict, deal_prediction: Dict, current_data: Dict, watch: Watch
+    ) -> str:
+        """Calculate alert urgency enhanced with AI predictions."""
+        try:
+            base_urgency = await self._calculate_urgency(deal_quality, current_data, watch)
+            
+            # Enhance with AI prediction
+            success_probability = deal_prediction.get("success_probability", 0.5)
+            
+            if success_probability >= 0.8:
+                # AI predicts high success - increase urgency
+                if base_urgency == "medium":
+                    return "high"
+                elif base_urgency == "low":
+                    return "medium"
+            elif success_probability <= 0.3:
+                # AI predicts poor success - decrease urgency
+                if base_urgency == "high":
+                    return "medium"
+                elif base_urgency == "medium":
+                    return "low"
+            
+            return base_urgency
+            
+        except Exception as e:
+            log.error("Error calculating AI-enhanced urgency: %s", e)
+            return "medium"
+
+    async def _build_inventory_alert_message(
+        self, product, inventory_prediction: Dict, urgency: str
+    ) -> Dict:
+        """Build inventory alert message with AI insights."""
+        urgency_emojis = {
+            "low": "📊",
+            "medium": "⚠️", 
+            "high": "🚨",
+            "critical": "🔥"
+        }
+        
+        urgency_messages = {
+            "low": "Stock levels are stable",
+            "medium": "Stock levels need monitoring", 
+            "high": "Stock may run out soon",
+            "critical": "Stock-out imminent!"
+        }
+        
+        emoji = urgency_emojis.get(urgency, "📊")
+        base_message = urgency_messages.get(urgency, "Stock status update")
+        
+        stockout_prob = inventory_prediction.get("stockout_probability", 0)
+        days_until = inventory_prediction.get("days_until_stockout")
+        
+        caption = f"{emoji} **Inventory Alert**\n\n"
+        caption += f"**Product:** {product.title}\n"
+        caption += f"**Status:** {base_message}\n"
+        caption += f"**Stock-out Probability:** {stockout_prob:.1%}\n"
+        
+        if days_until:
+            caption += f"**Estimated Time:** {days_until} days\n"
+        
+        caption += f"\n**AI Recommendation:** {inventory_prediction.get('recommendation', 'Monitor regularly')}"
+        
+        # Create keyboard with action buttons
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🔍 Check Product", url=f"https://amazon.in/dp/{product.asin}"),
+                InlineKeyboardButton("📊 View Details", callback_data=f"inventory_details:{product.asin}")
+            ]
+        ])
+        
+        return {
+            "caption": caption,
+            "keyboard": keyboard,
+            "urgency": urgency
+        }
+
+    async def _format_recommendation_for_display(self, recommendation: Dict) -> Dict:
+        """Format AI recommendation for user display."""
+        return {
+            "asin": recommendation.get("asin"),
+            "title": recommendation.get("title", "Unknown Product"),
+            "brand": recommendation.get("brand", "Unknown"),
+            "category": recommendation.get("category", "General"),
+            "confidence": recommendation.get("confidence_score", 0.5),
+            "interest_level": recommendation.get("predicted_interest_level", "medium"),
+            "explanation": recommendation.get("explanation", "Based on your preferences"),
+            "source": recommendation.get("source", "ai_prediction")
+        }
+
+    async def _build_recommendations_message(self, recommendations: List[Dict]) -> Dict:
+        """Build personalized recommendations message."""
+        if not recommendations:
+            return {"caption": "No recommendations available", "keyboard": None}
+        
+        caption = "🤖 **AI-Powered Recommendations**\n\n"
+        caption += "Based on your browsing patterns, here are some products you might like:\n\n"
+        
+        # Show top 3 recommendations in detail
+        for i, rec in enumerate(recommendations[:3], 1):
+            confidence_emoji = "🔥" if rec["confidence"] > 0.8 else "⭐" if rec["confidence"] > 0.6 else "💡"
+            
+            caption += f"{confidence_emoji} **{i}. {rec['title'][:40]}{'...' if len(rec['title']) > 40 else ''}**\n"
+            caption += f"   Brand: {rec['brand']} | Category: {rec['category']}\n"
+            caption += f"   Why: {rec['explanation'][:60]}{'...' if len(rec['explanation']) > 60 else ''}\n\n"
+        
+        if len(recommendations) > 3:
+            caption += f"_... and {len(recommendations) - 3} more personalized suggestions_\n\n"
+        
+        caption += "💡 Tap 'View All' to see complete recommendations with prices!"
+        
+        # Create keyboard
+        keyboard_buttons = []
+        
+        # Add quick access buttons for top recommendations
+        for i, rec in enumerate(recommendations[:2]):
+            if rec["asin"] != "fallback":
+                keyboard_buttons.append([
+                    InlineKeyboardButton(
+                        f"🔍 View #{i+1}", 
+                        url=f"https://amazon.in/dp/{rec['asin']}"
+                    )
+                ])
+        
+        # Add action buttons
+        keyboard_buttons.append([
+            InlineKeyboardButton("📋 View All Recommendations", callback_data="view_all_recommendations"),
+            InlineKeyboardButton("⚙️ Preferences", callback_data="update_preferences")
+        ])
+        
+        keyboard = InlineKeyboardMarkup(keyboard_buttons)
+        
+        return {
+            "caption": caption,
+            "keyboard": keyboard
+        }
