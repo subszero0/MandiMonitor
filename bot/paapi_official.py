@@ -557,7 +557,7 @@ class OfficialPaapiClient:
                 ],
                 "ancestors": [
                     {"id": ancestor.id, "name": ancestor.display_name}
-                    for ancestor in (node.ancestor or [])
+                    for ancestor in (node.ancestor if isinstance(node.ancestor, list) else [node.ancestor] if node.ancestor else [])
                 ],
                 "sales_rank": getattr(node, "sales_rank", None),
             }
