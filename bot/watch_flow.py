@@ -814,9 +814,18 @@ async def _finalize_watch(
                         log.warning("Cache service also failed for ASIN %s: %s", asin, cache_error)
 
                 # Build success message
-                success_msg = f"✅ **Watch created successfully!**\n\n📱 Product: {title}"
+                def escape_markdown(text: str) -> str:
+                    """Escape special characters for Telegram Markdown."""
+                    special_chars = ['*', '_', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+                    for char in special_chars:
+                        text = text.replace(char, f'\\{char}')
+                    return text
+                
+                escaped_title = escape_markdown(title)
+                success_msg = f"✅ **Watch created successfully!**\n\n📱 Product: {escaped_title}"
                 if watch_data.get("brand"):
-                    success_msg += f"\n🏷️ Brand: {watch_data['brand'].title()}"
+                    escaped_brand = escape_markdown(watch_data['brand'].title())
+                    success_msg += f"\n🏷️ Brand: {escaped_brand}"
                 if watch_data.get("max_price"):
                     success_msg += f"\n💰 Max price: ₹{watch_data['max_price']:,}"
                 if watch_data.get("min_discount"):

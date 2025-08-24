@@ -318,6 +318,55 @@ class TestE2EWatchCreationFlow:
                 log.warning("⚠️ No price ranges generated (might use defaults)")
         except Exception as e:
             log.warning(f"⚠️ Price filtering test failed: {e}")
+    
+    async def test_telegram_message_formatting(self):
+        """Test that product titles with special characters don't break Telegram parsing."""
+        log.info("🧪 Testing Telegram message formatting...")
+        
+        # Test titles with problematic characters that could break Markdown
+        problematic_titles = [
+            "Gaming Laptop [16GB RAM] - High Performance!",
+            "Monitor 24\" (Full HD) - Best Deal*",
+            "Keyboard & Mouse Set - RGB Lighting",
+            "USB-C Hub #1 Choice - Premium Quality",
+            "Headphones ~Wireless~ - Noise Cancelling",
+            "Tablet 10.1\" Display - Android 12",
+            "Router 802.11ac - Dual Band WiFi 6",
+        ]
+        
+        for title in problematic_titles:
+            try:
+                # Test markdown escaping function
+                def escape_markdown(text: str) -> str:
+                    """Escape special characters for Telegram Markdown."""
+                    special_chars = ['*', '_', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+                    for char in special_chars:
+                        text = text.replace(char, f'\\{char}')
+                    return text
+                
+                escaped_title = escape_markdown(title)
+                test_message = f"✅ **Watch created successfully!**\n\n📱 Product: {escaped_title}"
+                
+                # Verify no unescaped special characters remain in context that could break parsing
+                # Check that special chars are properly escaped
+                if '*' in title and '\\*' not in escaped_title and '**' not in escaped_title:
+                    raise AssertionError(f"Asterisk not properly escaped in: {escaped_title}")
+                if '[' in title and '\\[' not in escaped_title:
+                    raise AssertionError(f"Square bracket not properly escaped in: {escaped_title}")
+                if '(' in title and '\\(' not in escaped_title:
+                    raise AssertionError(f"Parenthesis not properly escaped in: {escaped_title}")
+                
+                # Message should not have unmatched markdown
+                bold_count = test_message.count('**')
+                if bold_count % 2 != 0:
+                    raise AssertionError(f"Unmatched bold markers in message: {test_message}")
+                
+                log.info(f"✅ Title properly escaped: {title[:30]}...")
+                
+            except Exception as e:
+                raise AssertionError(f"Message formatting failed for title '{title}': {e}")
+        
+        log.info("✅ Telegram message formatting test passed")
 
 
 class TestE2EErrorHandling:
@@ -437,6 +486,7 @@ async def test_comprehensive_e2e_flow():
         (currency_test.test_brand_prioritization, "Brand Prioritization"),
         (currency_test.test_telegram_ui_components, "Telegram UI Components"),
         (currency_test.test_price_filtering_logic, "Price Filtering Logic"),
+        (currency_test.test_telegram_message_formatting, "Telegram Message Formatting"),
         (error_test.test_missing_asin_handling, "Missing ASIN Handling"),
         (error_test.test_invalid_callback_data, "Invalid Callback Data"),
         (performance_test.test_concurrent_requests, "Concurrent Requests"),
