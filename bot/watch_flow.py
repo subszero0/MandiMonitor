@@ -8,6 +8,7 @@ import re
 import time
 
 from sqlmodel import Session, select
+import telegram
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -426,7 +427,7 @@ async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     # Always ask for missing fields to give users control over their watch criteria
     missing_fields = []
-    if parsed_data.get("brand") is None:
+    if not parsed_data.get("_brand_selected", False):
         missing_fields.append("brand")
     if not parsed_data.get("_discount_selected", False):
         missing_fields.append("discount")
@@ -473,6 +474,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parsed_data["brand"] = None
         else:
             parsed_data["brand"] = brand
+        parsed_data["_brand_selected"] = True  # Mark as processed
         log.info("User %s selected brand: %s", update.effective_user.id, brand)
 
     elif query.data.startswith("disc:"):
@@ -509,7 +511,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Check what's still missing (use processed markers to avoid re-asking skipped fields)
     missing_fields = []
-    if parsed_data.get("brand") is None:
+    if not parsed_data.get("_brand_selected", False):
         missing_fields.append("brand")
     if not parsed_data.get("_discount_selected", False):
         missing_fields.append("discount")
@@ -621,11 +623,21 @@ async def _ask_for_missing_field(
 
     # Send or edit message
     if edit and update.callback_query:
-        await update.callback_query.edit_message_text(
-            text=text,
-            reply_markup=keyboard,
-            parse_mode="Markdown",
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                text=text,
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
+        except telegram.error.BadRequest as e:
+            # Handle case where message content is identical
+            if "Message is not modified" in str(e):
+                log.warning("Message content identical, skipping edit for field: %s", field)
+                # Just answer the callback query to remove the loading state
+                await update.callback_query.answer()
+            else:
+                # Re-raise other BadRequest errors
+                raise
     else:
         await update.effective_message.reply_text(
             text=text,
@@ -736,6 +748,7 @@ async def _finalize_watch(
         return
 
     # Clean up internal tracking fields
+    watch_data.pop("_brand_selected", None)
     watch_data.pop("_discount_selected", None)
     watch_data.pop("_price_selected", None)
     
