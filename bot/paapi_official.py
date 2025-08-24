@@ -340,23 +340,22 @@ class OfficialPaapiClient:
                 data["manufacturer"] = item.item_info.by_line_info.manufacturer.display_value if item.item_info.by_line_info.manufacturer else None
                 
             if item.item_info.features:
-                data["features"] = [feature.display_value for feature in item.item_info.features.display_values] if item.item_info.features.display_values else []
+                data["features"] = item.item_info.features.display_values if item.item_info.features.display_values else []
                 
             if item.item_info.product_info:
-                data["color"] = item.item_info.product_info.color.display_value if item.item_info.product_info.color else None
-                data["size"] = item.item_info.product_info.size.display_value if item.item_info.product_info.size else None
-                data["product_group"] = item.item_info.product_info.product_group.display_value if item.item_info.product_info.product_group else None
-                data["item_weight"] = item.item_info.product_info.item_weight.display_value if item.item_info.product_info.item_weight else None
-                data["is_adult_product"] = item.item_info.product_info.is_adult_product.display_value if item.item_info.product_info.is_adult_product else False
+                data["color"] = item.item_info.product_info.color.display_value if hasattr(item.item_info.product_info, 'color') and item.item_info.product_info.color else None
+                data["size"] = item.item_info.product_info.size.display_value if hasattr(item.item_info.product_info, 'size') and item.item_info.product_info.size else None
+                data["item_weight"] = item.item_info.product_info.item_weight.display_value if hasattr(item.item_info.product_info, 'item_weight') and item.item_info.product_info.item_weight else None
+                data["is_adult_product"] = item.item_info.product_info.is_adult_product.display_value if hasattr(item.item_info.product_info, 'is_adult_product') and item.item_info.product_info.is_adult_product else False
                 
             if item.item_info.technical_info:
                 # TODO: Extract technical details based on available fields
                 pass
                 
             if item.item_info.external_ids:
-                data["ean"] = item.item_info.external_ids.ean.display_value if item.item_info.external_ids.ean else None
-                data["isbn"] = item.item_info.external_ids.isbn.display_value if item.item_info.external_ids.isbn else None
-                data["upc"] = item.item_info.external_ids.upc.display_value if item.item_info.external_ids.upc else None
+                data["ean"] = item.item_info.external_ids.ean.display_value if hasattr(item.item_info.external_ids, 'ean') and item.item_info.external_ids.ean else None
+                data["isbn"] = item.item_info.external_ids.isbn.display_value if hasattr(item.item_info.external_ids, 'isbn') and item.item_info.external_ids.isbn else None
+                data["upc"] = item.item_info.external_ids.upc.display_value if hasattr(item.item_info.external_ids, 'upc') and item.item_info.external_ids.upc else None
 
         # Extract pricing information from offersV2
         if item.offers_v2 and item.offers_v2.listings:
@@ -428,6 +427,22 @@ class OfficialPaapiClient:
         # Set detail page URL
         if item.detail_page_url:
             data["detail_page_url"] = item.detail_page_url
+
+        # Map offers data to main data fields for backward compatibility
+        if data["offers"]["price"]:
+            data["price"] = data["offers"]["price"]
+        if data["offers"]["availability"]:
+            data["availability"] = data["offers"]["availability"]
+        if data["offers"]["price"]:
+            data["currency"] = "INR"  # India marketplace always uses INR
+        
+        # Map primary image to main image_url field
+        if data["images"]["large"]:
+            data["image_url"] = data["images"]["large"]
+        elif data["images"]["medium"]:
+            data["image_url"] = data["images"]["medium"]
+        elif data["images"]["small"]:
+            data["image_url"] = data["images"]["small"]
 
         return data
 

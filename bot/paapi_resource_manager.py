@@ -55,7 +55,7 @@ class ResourceManager:
         
         self.minimal_search_resources = [
             SearchItemsResource.ITEMINFO_TITLE,
-            SearchItemsResource.OFFERSV2_LISTINGS_PRICE,
+            SearchItemsResource.OFFERS_LISTINGS_PRICE,
             SearchItemsResource.IMAGES_PRIMARY_MEDIUM,
         ]
         
@@ -68,7 +68,6 @@ class ResourceManager:
             GetItemsResource.OFFERSV2_LISTINGS_PRICE,
             GetItemsResource.OFFERSV2_LISTINGS_AVAILABILITY,
             GetItemsResource.OFFERSV2_LISTINGS_CONDITION,
-            GetItemsResource.OFFERSV2_LISTINGS_DELIVERYINFO,
             GetItemsResource.OFFERSV2_LISTINGS_MERCHANTINFO,
             GetItemsResource.IMAGES_PRIMARY_LARGE,
             GetItemsResource.IMAGES_PRIMARY_MEDIUM,
@@ -80,8 +79,8 @@ class ResourceManager:
         self.detailed_search_resources = [
             SearchItemsResource.ITEMINFO_TITLE,
             SearchItemsResource.ITEMINFO_BYLINEINFO,
-            SearchItemsResource.OFFERSV2_LISTINGS_PRICE,
-            SearchItemsResource.OFFERSV2_LISTINGS_AVAILABILITY,
+            SearchItemsResource.OFFERS_LISTINGS_PRICE,
+            SearchItemsResource.OFFERS_LISTINGS_AVAILABILITY_TYPE,
             SearchItemsResource.IMAGES_PRIMARY_MEDIUM,
             SearchItemsResource.CUSTOMERREVIEWS_COUNT,
             SearchItemsResource.CUSTOMERREVIEWS_STARRATING,
@@ -102,10 +101,7 @@ class ResourceManager:
             GetItemsResource.OFFERSV2_LISTINGS_PRICE,
             GetItemsResource.OFFERSV2_LISTINGS_AVAILABILITY,
             GetItemsResource.OFFERSV2_LISTINGS_CONDITION,
-            GetItemsResource.OFFERSV2_LISTINGS_DELIVERYINFO,
             GetItemsResource.OFFERSV2_LISTINGS_MERCHANTINFO,
-            GetItemsResource.OFFERSV2_LISTINGS_PROMOTIONS,
-            GetItemsResource.OFFERSV2_LISTINGS_SAVINGBASIS,
             GetItemsResource.IMAGES_PRIMARY_LARGE,
             GetItemsResource.IMAGES_PRIMARY_MEDIUM,
             GetItemsResource.IMAGES_PRIMARY_SMALL,
@@ -119,7 +115,6 @@ class ResourceManager:
         self.browse_nodes_resources = [
             GetBrowseNodesResource.ANCESTOR,
             GetBrowseNodesResource.CHILDREN,
-            GetBrowseNodesResource.SALESRANK,
         ]
     
     def _define_legacy_resources(self):
