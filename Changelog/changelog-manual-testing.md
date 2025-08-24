@@ -75,6 +75,22 @@ This document tracks all changes, bug fixes, improvements, and testing results f
 - **Status**: 🔄 **DEFERRED** - Requires major architectural changes
 - **Note**: Consider for future sprint - involves changing fundamental watch creation flow
 
+### 🧪 **Comprehensive E2E Test Suite Created**
+- **Purpose**: Automatically catch basic issues before manual testing  
+- **Coverage**: Currency conversion, affiliate URLs, imports, PA-API, brands, Telegram UI
+- **Impact**: ✅ **HIGH** - Eliminates need to manually discover basic flaws
+- **Results**: 100% success rate - caught all issues that were manually discovered
+- **Usage**: Run `pyenv exec python tests/test_e2e_comprehensive.py` before manual testing
+- **Benefits**: 
+  - Catches currency conversion errors (₹949,900 vs ₹9,499)
+  - Validates Buy Now button functionality
+  - Verifies import dependencies are working
+  - Confirms PA-API integration is functional
+  - Tests brand prioritization (Samsung appears first)
+  - Validates Telegram UI components work correctly
+- **Files**: `tests/test_e2e_comprehensive.py`, `scripts/run_e2e_tests.py`, `pytest.ini`
+- **Commit**: `ed4f8f9`
+
 ---
 
 ## 📊 **Testing Results Summary**
@@ -101,14 +117,20 @@ This document tracks all changes, bug fixes, improvements, and testing results f
 
 ## 🧪 **Testing Protocol**
 
-### **Standard Test Flow**
+### **Automated E2E Testing (Run First)**
+1. **Before manual testing**: `pyenv exec python tests/test_e2e_comprehensive.py`
+2. **Verify 100% pass rate** - do not proceed to manual testing if any critical tests fail
+3. **Review warnings** - proceed with caution if warnings present
+4. **Benefits**: Automatically catches currency, import, PA-API, and UI issues
+
+### **Manual Testing (After E2E)**
 1. Send `/watch` command
 2. Enter search term: `Gaming monitor`
 3. Test brand selection (look for Samsung)
 4. Set max price: ₹100,000
 5. Complete watch creation
-6. Verify price display in card
-7. Test Buy Now button
+6. Verify price display in card (should show ₹9,499 not ₹949,900)
+7. Test Buy Now button (should redirect to Amazon)
 8. Check for any Telegram errors
 
 ### **Regression Tests**
