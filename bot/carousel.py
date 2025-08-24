@@ -35,8 +35,8 @@ def build_single_card(
         Tuple of (caption_text, keyboard_markup)
 
     """
-    # Build caption with price formatting
-    caption = f"📱 {title}\n💰 ₹{price:,}\n\n🔥 Current best price!"
+    # Build caption with price formatting (convert from paise to INR)
+    caption = f"📱 {title}\n💰 ₹{price//100:,}\n\n🔥 Current best price!"
 
     # Create buy button with callback data for click tracking
     keyboard = InlineKeyboardMarkup(

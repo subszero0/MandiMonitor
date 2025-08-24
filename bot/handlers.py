@@ -2,9 +2,14 @@
 
 import logging
 
-from telegram import Update
+from sqlmodel import Session
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
+
 from .smart_alerts import SmartAlertEngine
+from .affiliate import build_affiliate_url
+from .cache_service import engine
+from .models import Click
 
 logger = logging.getLogger(__name__)
 

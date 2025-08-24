@@ -241,8 +241,12 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_resu
                     brands.add(first_word)
                     log.debug("First word extracted: '%s'", first_word)
         
-        # Convert to sorted list and limit to max_brands
-        brand_list = sorted(list(brands))[:max_brands]
+        # Convert to list and prioritize known common brands, then alphabetical
+        brand_list = list(brands)
+        # Sort to prioritize common brands first, then alphabetically
+        common_brand_names = {brand.lower() for brand in COMMON_BRANDS}
+        brand_list.sort(key=lambda x: (x not in common_brand_names, x))
+        brand_list = brand_list[:max_brands]
         
         if brand_list:
             log.info("Extracted %d dynamic brands for '%s': %s", len(brand_list), search_query, brand_list)
