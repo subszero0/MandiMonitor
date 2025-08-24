@@ -24,6 +24,7 @@ from paapi5_python_sdk.rest import ApiException
 from .api_rate_limiter import acquire_api_permission
 from .config import settings
 from .errors import QuotaExceededError
+from .paapi_resource_manager import get_resource_manager
 
 log = getLogger(__name__)
 
@@ -50,6 +51,9 @@ class OfficialPaapiClient:
             host=settings.PAAPI_HOST,  # "webservices.amazon.in"
             region=settings.PAAPI_REGION,  # "eu-west-1" 
         )
+        
+        # Initialize resource manager
+        self.resource_manager = get_resource_manager()
         
     async def get_item_detailed(
         self, asin: str, resources: Optional[List[str]] = None, priority: str = "normal"
@@ -88,6 +92,9 @@ class OfficialPaapiClient:
 
     def _sync_get_item_detailed(self, asin: str) -> Dict:
         """Synchronous detailed PA-API call using official SDK."""
+        # Get appropriate resources from resource manager
+        resources = self.resource_manager.get_detailed_resources("get_items")
+        
         # Create the request object with proper marketplace configuration
         get_items_request = GetItemsRequest(
             partner_tag=settings.PAAPI_TAG,
@@ -95,30 +102,7 @@ class OfficialPaapiClient:
             marketplace=settings.PAAPI_MARKETPLACE,  # "www.amazon.in"
             condition=Condition.NEW,
             item_ids=[asin],
-            resources=[
-                GetItemsResource.ITEMINFO_TITLE,
-                GetItemsResource.ITEMINFO_BYLINEINFO,
-                GetItemsResource.ITEMINFO_FEATURES,
-                GetItemsResource.ITEMINFO_MANUFACTUREINFO,
-                GetItemsResource.ITEMINFO_PRODUCTINFO,
-                GetItemsResource.ITEMINFO_TECHNICALINFO,
-                GetItemsResource.ITEMINFO_TRADEININFO,
-                GetItemsResource.ITEMINFO_EXTERNALIDS,
-                GetItemsResource.OFFERSV2_LISTINGS_PRICE,
-                GetItemsResource.OFFERSV2_LISTINGS_AVAILABILITY,
-                GetItemsResource.OFFERSV2_LISTINGS_CONDITION,
-                GetItemsResource.OFFERSV2_LISTINGS_DELIVERYINFO,
-                GetItemsResource.OFFERSV2_LISTINGS_MERCHANTINFO,
-                GetItemsResource.OFFERSV2_LISTINGS_PROMOTIONS,
-                GetItemsResource.OFFERSV2_LISTINGS_SAVINGBASIS,
-                GetItemsResource.IMAGES_PRIMARY_LARGE,
-                GetItemsResource.IMAGES_PRIMARY_MEDIUM,
-                GetItemsResource.IMAGES_PRIMARY_SMALL,
-                GetItemsResource.IMAGES_VARIANTS_LARGE,
-                GetItemsResource.CUSTOMERREVIEWS_COUNT,
-                GetItemsResource.CUSTOMERREVIEWS_STARRATING,
-                GetItemsResource.BROWSENODEINFO_BROWSENODES,
-            ]
+            resources=resources
         )
 
         try:
@@ -251,6 +235,9 @@ class OfficialPaapiClient:
         }
         api_condition = condition_map.get(condition, Condition.NEW)
         
+        # Get appropriate resources from resource manager
+        resources = self.resource_manager.get_detailed_resources("search_items")
+        
         # Create the search request
         search_items_request = SearchItemsRequest(
             partner_tag=settings.PAAPI_TAG,
@@ -261,15 +248,7 @@ class OfficialPaapiClient:
             condition=api_condition,
             item_count=min(item_count, 10),  # Max 10 per request
             item_page=item_page,
-            resources=[
-                SearchItemsResource.ITEMINFO_TITLE,
-                SearchItemsResource.ITEMINFO_BYLINEINFO,
-                SearchItemsResource.OFFERSV2_LISTINGS_PRICE,
-                SearchItemsResource.OFFERSV2_LISTINGS_AVAILABILITY,
-                SearchItemsResource.IMAGES_PRIMARY_MEDIUM,
-                SearchItemsResource.CUSTOMERREVIEWS_COUNT,
-                SearchItemsResource.CUSTOMERREVIEWS_STARRATING,
-            ]
+            resources=resources
         )
         
         # Add price filters if specified (convert paise to rupees)
@@ -534,17 +513,16 @@ class OfficialPaapiClient:
 
     def _sync_get_browse_nodes(self, browse_node_id: int) -> Dict:
         """Synchronous browse nodes implementation using official SDK."""
+        # Get appropriate resources from resource manager
+        resources = self.resource_manager.get_resources_for_context("browse_nodes")
+        
         # Create the request object
         get_browse_nodes_request = GetBrowseNodesRequest(
             partner_tag=settings.PAAPI_TAG,
             partner_type=PartnerType.ASSOCIATES,
             marketplace=settings.PAAPI_MARKETPLACE,  # "www.amazon.in"
             browse_node_ids=[str(browse_node_id)],
-            resources=[
-                GetBrowseNodesResource.ANCESTOR,
-                GetBrowseNodesResource.CHILDREN,
-                GetBrowseNodesResource.SALESRANK,
-            ]
+            resources=resources
         )
 
         try:
