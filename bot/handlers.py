@@ -4,8 +4,12 @@ import logging
 
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
+from .smart_alerts import SmartAlertEngine
 
 logger = logging.getLogger(__name__)
+
+# Initialize SmartAlertEngine once at module level
+smart_alerts = SmartAlertEngine()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -172,7 +176,6 @@ async def recommendations_command(update: Update, context: ContextTypes.DEFAULT_
     """
     from .cache_service import engine
     from .models import User
-    from .smart_alerts import SmartAlertEngine
     from sqlmodel import Session, select
     
     try:
@@ -192,7 +195,6 @@ async def recommendations_command(update: Update, context: ContextTypes.DEFAULT_
                 session.refresh(user)
         
         # Generate AI recommendations
-        smart_alerts = SmartAlertEngine()
         recommendations_data = await smart_alerts.generate_personalized_recommendations(user.id)
         
         if recommendations_data["status"] == "success":
@@ -297,7 +299,6 @@ async def ai_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         context: Bot context
 
     """
-    from .smart_alerts import SmartAlertEngine
     from .cache_service import engine
     from .models import User
     from sqlmodel import Session, select
@@ -316,7 +317,6 @@ async def ai_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 ).first()
                 
                 if user:
-                    smart_alerts = SmartAlertEngine()
                     recommendations_data = await smart_alerts.generate_personalized_recommendations(user.id)
                     
                     if recommendations_data["status"] == "success":

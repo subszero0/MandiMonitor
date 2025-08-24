@@ -114,6 +114,10 @@ def weekly_trend_report() -> None:
 
 def realtime_job(watch_id: int) -> None:
     """Fetch latest price every 10 min, skipped 23:00-08:00 IST."""
+    # TEMPORARILY DISABLED to prevent API quota exhaustion during testing
+    log.info("Realtime job temporarily disabled for watch %d", watch_id)
+    return
+    
     now = datetime.now(TZ).time()
     if dtime(23, 0) <= now or now < dtime(8, 0):
         return  # quiet hours

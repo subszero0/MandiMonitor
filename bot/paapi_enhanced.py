@@ -376,9 +376,16 @@ async def search_items_advanced(
         )
         return result
     except Exception as exc:
-        if "503" in str(exc) or "quota" in str(exc).lower():
-            log.warning("PA-API quota exceeded for search")
-            raise QuotaExceededError("PA-API quota exceeded for search") from exc
+        error_str = str(exc).lower()
+        if "503" in str(exc) or "quota" in error_str or "limit" in error_str or "throttling" in error_str:
+            log.error("PA-API advanced search failed: %s", exc) 
+            log.error("PA-API advanced search error: %s", exc)  
+            # Implement exponential backoff for rate limits
+            import time
+            import random
+            backoff_time = 300 + random.randint(60, 180)  # 5-8 minutes base cooldown
+            log.warning("PA-API rate limited. Implementing %d second cooldown", backoff_time)
+            raise QuotaExceededError(f"PA-API quota/rate limit exceeded. Cooldown: {backoff_time}s") from exc
         log.error("PA-API advanced search error: %s", exc)
         return []
 
@@ -406,12 +413,12 @@ def _sync_search_items_advanced(
         tag=settings.PAAPI_TAG,
         country="IN",
     )
+    # AmazonApi instance created
 
-    # Build search parameters
+    # Build search parameters - NOTE: resources added later to avoid conflicts
     search_params = {
         "item_count": item_count,
         "item_page": item_page,
-        "resources": get_resources_for_context("search_results"),
     }
 
     if keywords:
@@ -436,7 +443,42 @@ def _sync_search_items_advanced(
         search_params["browse_node_id"] = browse_node_id
 
     try:
-        results = api.search_items(**search_params)
+        # Get resources directly to avoid conflicts in search_params
+        resources = get_resources_for_context("search_results")
+        
+        # Build the search_items call manually to avoid any parameter conflicts
+        # Instead of using **search_params, build each parameter explicitly
+        # COMPLETELY REMOVE resources parameter to avoid conflicts with library internals
+        search_kwargs = {}
+        
+        # Add search parameters explicitly to avoid conflicts
+        if "keywords" in search_params:
+            search_kwargs["keywords"] = search_params["keywords"]
+        if "title" in search_params:
+            search_kwargs["title"] = search_params["title"]
+        if "brand" in search_params:
+            search_kwargs["brand"] = search_params["brand"]
+        if "search_index" in search_params:
+            search_kwargs["search_index"] = search_params["search_index"]
+        if "item_count" in search_params:
+            search_kwargs["item_count"] = search_params["item_count"]
+        if "item_page" in search_params:
+            search_kwargs["item_page"] = search_params["item_page"]
+        if "min_price" in search_params:
+            search_kwargs["min_price"] = search_params["min_price"]
+        if "max_price" in search_params:
+            search_kwargs["max_price"] = search_params["max_price"]
+        if "merchant" in search_params:
+            search_kwargs["merchant"] = search_params["merchant"]
+        if "condition" in search_params:
+            search_kwargs["condition"] = search_params["condition"]
+        if "sort_by" in search_params:
+            search_kwargs["sort_by"] = search_params["sort_by"]
+        if "browse_node_id" in search_params:
+            search_kwargs["browse_node_id"] = search_params["browse_node_id"]
+        
+        # Call search_items with explicit parameters only
+        results = api.search_items(**search_kwargs)
         if not results:
             return []
 

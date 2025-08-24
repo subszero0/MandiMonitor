@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
+import time
 
 from sqlmodel import Session, select
 from telegram import Update
@@ -12,11 +15,85 @@ from .cache_service import engine, get_price
 from .carousel import build_single_card
 from .models import User, Watch
 from .paapi_enhanced import get_item_detailed, search_items_advanced
+from .paapi_health import is_in_cooldown, set_rate_limit_cooldown
 from .ui_helpers import build_brand_buttons, build_discount_buttons, build_price_buttons, build_mode_buttons
 from .watch_parser import parse_watch, validate_watch_data
-import re
+
+# Enhanced cache to completely eliminate duplicate API calls during watch creation
+_search_cache = {}
+_cache_ttl = 300  # Cache results for 5 minutes
+_active_searches = {}  # Track ongoing searches to prevent duplicates
 
 log = logging.getLogger(__name__)
+
+
+async def _cached_search_items_advanced(keywords: str, item_count: int = 10, priority: str = "normal"):
+    """Enhanced cached version that completely eliminates duplicate API calls."""
+    cache_key = f"{keywords}:{item_count}"
+    current_time = time.time()
+    
+    # Check if we have a valid cached result FIRST
+    if cache_key in _search_cache:
+        cached_data, timestamp = _search_cache[cache_key]
+        if current_time - timestamp < _cache_ttl:
+            log.info("Using cached search results for: %s", keywords)
+            return cached_data
+    
+    # Check if there's already an active search for this key
+    if cache_key in _active_searches:
+        log.info("Waiting for active search to complete for: %s", keywords)
+        try:
+            return await _active_searches[cache_key]
+        except Exception as e:
+            log.warning("Active search failed for %s: %s", keywords, e)
+            # Continue to make fresh call below
+    
+    # Create a future for this search to prevent duplicates
+    search_future = asyncio.Future()
+    _active_searches[cache_key] = search_future
+    
+    try:
+        # Check if we're in a cooldown period
+        if is_in_cooldown():
+            log.warning("PA-API in cooldown, skipping call for: %s", keywords)
+            search_future.set_result([])
+            return []
+        
+        # Make the API call and cache the result
+        log.info("Making fresh API call for: %s", keywords)
+        results = await search_items_advanced(
+            keywords=keywords,
+            item_count=item_count,
+            priority=priority
+        )
+        
+        # Cache the results
+        _search_cache[cache_key] = (results, current_time)
+        
+        # Clean up old cache entries
+        keys_to_remove = [k for k, (_, ts) in _search_cache.items() if current_time - ts > _cache_ttl]
+        for k in keys_to_remove:
+            del _search_cache[k]
+        
+        # Signal completion to any waiting coroutines
+        search_future.set_result(results)
+        
+        return results
+        
+    except Exception as e:
+        # Check if this is a rate limiting error and activate cooldown
+        error_str = str(e).lower()
+        if "limit" in error_str or "quota" in error_str or "throttling" in error_str:
+            log.error("Rate limiting detected, activating 10-minute cooldown")
+            set_rate_limit_cooldown(600)  # 10 minute cooldown
+        
+        # Signal error to any waiting coroutines
+        search_future.set_exception(e)
+        raise
+    finally:
+        # Clean up the active search
+        _active_searches.pop(cache_key, None)
+
 
 # Common brand list for buttons (fallback)
 COMMON_BRANDS = [
@@ -34,13 +111,14 @@ COMMON_BRANDS = [
 ]
 
 
-async def get_dynamic_brands(search_query: str, max_brands: int = 9) -> list[str]:
+async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_results: list = None) -> list[str]:
     """Get relevant brands from Amazon search results for the given query.
     
     Args:
     ----
         search_query: User's search query 
         max_brands: Maximum number of brands to return
+        cached_results: Pre-fetched search results to avoid extra API calls
         
     Returns:
     -------
@@ -50,13 +128,17 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9) -> list[str
     try:
         log.info("Fetching dynamic brands for query: %s", search_query)
         
-        # Try enhanced PA-API first
-        search_results = await search_items_advanced(
-            keywords=search_query, 
-            item_count=10, 
-            item_page=1,
-            priority="normal"
-        )
+        # Use provided cached results first to avoid duplicate API calls
+        if cached_results:
+            log.info("Using provided cached results for brand extraction: %s", search_query)
+            search_results = cached_results
+        else:
+            # Try enhanced PA-API only if no cached results provided (cached)
+            search_results = await _cached_search_items_advanced(
+                keywords=search_query, 
+                item_count=10,
+                priority="normal"
+            )
         # Convert to expected format
         search_results = [
             {
@@ -174,12 +256,13 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9) -> list[str
         return COMMON_BRANDS[:max_brands]
 
 
-async def get_dynamic_price_ranges(search_query: str) -> list[tuple[str, int]]:
+async def get_dynamic_price_ranges(search_query: str, cached_results: list = None) -> list[tuple[str, int]]:
     """Get relevant price ranges from Amazon search results for the given query.
     
     Args:
     ----
         search_query: User's search query 
+        cached_results: Pre-fetched search results to avoid extra API calls
         
     Returns:
     -------
@@ -189,13 +272,17 @@ async def get_dynamic_price_ranges(search_query: str) -> list[tuple[str, int]]:
     try:
         log.info("Fetching dynamic price ranges for query: %s", search_query)
         
-        # Search for products related to the query using enhanced PA-API
-        search_results = await search_items_advanced(
-            keywords=search_query, 
-            item_count=10, 
-            item_page=1,
-            priority="normal"
-        )
+        # Use provided cached results first to avoid duplicate API calls
+        if cached_results:
+            log.info("Using provided cached results for price extraction: %s", search_query)
+            search_results = cached_results
+        else:
+            # Search for products related to the query using enhanced PA-API only if needed (cached)
+            search_results = await _cached_search_items_advanced(
+                keywords=search_query, 
+                item_count=10,
+                priority="normal"
+            )
         # Convert to expected format for price extraction
         search_results = [
             {
@@ -469,14 +556,37 @@ async def _ask_for_missing_field(
         edit: Whether to edit existing message or send new one
 
     """
+    # Pre-fetch search results ONCE and reuse for both brands and prices
+    search_query = context.user_data.get("pending_watch", {}).get("keywords", "")
+    search_results = None
+    
+    # Only fetch search results if we need them for dynamic data (brand or price)
+    if field in ["brand", "price"] and search_query:
+        try:
+            # Check if we already have cached search results in user data
+            search_results = context.user_data.get("search_results")
+            if not search_results:
+                log.info("Pre-fetching search results for dynamic options: %s", search_query)
+                search_results = await _cached_search_items_advanced(
+                    keywords=search_query, 
+                    item_count=10,
+                    priority="normal"
+                )
+                # Cache in user data to prevent future calls during this session
+                context.user_data["search_results"] = search_results
+                log.info("Cached search results for session: %d items", len(search_results))
+            else:
+                log.info("Using session cached search results: %d items", len(search_results))
+        except Exception as e:
+            log.warning("Failed to pre-fetch search results for '%s': %s", search_query, e)
+            search_results = None
+    
     if field == "brand":
         text = "🏷️ *Choose a brand:*\n\nSelect the brand you're looking for:"
         
-        # Get dynamic brands based on search query if available
-        search_query = context.user_data.get("pending_watch", {}).get("keywords", "")
-        if search_query:
+        if search_query and search_results is not None:
             try:
-                dynamic_brands = await get_dynamic_brands(search_query)
+                dynamic_brands = await get_dynamic_brands(search_query, cached_results=search_results)
                 keyboard = build_brand_buttons(dynamic_brands)
             except Exception as e:
                 log.warning("Failed to get dynamic brands for '%s': %s, using fallback", search_query, e)
@@ -491,11 +601,9 @@ async def _ask_for_missing_field(
     elif field == "price":
         text = "💰 *Maximum price:*\n\nWhat's your budget for this product?"
         
-        # Get dynamic price ranges based on search query if available
-        search_query = context.user_data.get("pending_watch", {}).get("keywords", "")
-        if search_query:
+        if search_query and search_results is not None:
             try:
-                dynamic_ranges = await get_dynamic_price_ranges(search_query)
+                dynamic_ranges = await get_dynamic_price_ranges(search_query, cached_results=search_results)
                 keyboard = build_price_buttons(dynamic_ranges)
             except Exception as e:
                 log.warning("Failed to get dynamic price ranges for '%s': %s, using fallback", search_query, e)
@@ -562,11 +670,18 @@ async def _finalize_watch(
             if not asin:
                 try:
                     log.info("No ASIN provided, attempting product search for: %s", watch_data["keywords"])
-                    search_results = await search_items_advanced(
-                        keywords=watch_data["keywords"],
-                        item_count=3,
-                        priority="high"  # High priority for user watch creation
-                    )
+                    
+                    # First check if we have cached results from the watch creation flow
+                    search_results = context.user_data.get("search_results")
+                    if search_results:
+                        log.info("Using session cached search results for ASIN lookup: %d items", len(search_results))
+                    else:
+                        # Only make API call if we don't have cached results
+                        search_results = await _cached_search_items_advanced(
+                            keywords=watch_data["keywords"],
+                            item_count=10,  # Use same count as price range search for better cache hits
+                            priority="high"  # High priority for user watch creation
+                        )
                     if search_results:
                         # Filter results based on brand if specified
                         if watch_data.get("brand"):
@@ -624,9 +739,10 @@ async def _finalize_watch(
     watch_data.pop("_discount_selected", None)
     watch_data.pop("_price_selected", None)
     
-    # Clear pending data
+    # Clear pending data AND session cached search results
     context.user_data.pop("pending_watch", None)
     context.user_data.pop("original_message_id", None)
+    context.user_data.pop("search_results", None)  # Clear session cache to prevent memory leaks
 
     # Send single comprehensive message based on what we found
     try:

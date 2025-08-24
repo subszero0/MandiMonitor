@@ -368,26 +368,58 @@ except ItemNotAccessible:
 
 ### Step 2: Environment Setup
 ```bash
-# Install the official Python SDK
+# Install the official Python SDK (RECOMMENDED)
 pip install paapi5-python-sdk
 
-# Or use the popular wrapper
-pip install amazon-paapi
+# Alternative: Third-party wrapper (NOT RECOMMENDED for production)
+# pip install amazon-paapi
 ```
 
+**⚠️ Important Library Choice:**
+- **Use `paapi5-python-sdk`** (Amazon's official SDK) for production applications
+- The official SDK provides better error handling, regional support, and compliance
+- Third-party libraries may have authentication and rate limiting issues
+
 ### Step 3: Configuration
+
+**For US Marketplace:**
 ```python
-# config.py
+# config.py - US Configuration
 import os
 
 PAAPI_CONFIG = {
     'access_key': os.getenv('PAAPI_ACCESS_KEY'),
     'secret_key': os.getenv('PAAPI_SECRET_KEY'),
     'partner_tag': os.getenv('PAAPI_TAG'),
-    'host': 'webservices.amazon.com',  # US marketplace
-    'region': 'us-east-1'
+    'host': 'webservices.amazon.com',
+    'region': 'us-east-1',
+    'marketplace': 'www.amazon.com'
 }
 ```
+
+**For India Marketplace:**
+```python
+# config.py - India Configuration
+import os
+
+PAAPI_CONFIG = {
+    'access_key': os.getenv('PAAPI_ACCESS_KEY'),
+    'secret_key': os.getenv('PAAPI_SECRET_KEY'),
+    'partner_tag': os.getenv('PAAPI_TAG'),
+    'host': 'webservices.amazon.in',     # India-specific host
+    'region': 'eu-west-1',               # Required region for India
+    'marketplace': 'www.amazon.in'       # India marketplace
+}
+```
+
+**📍 Regional Configuration Reference:**
+| Country | Host | Region | Marketplace |
+|---------|------|--------|-------------|
+| US | webservices.amazon.com | us-east-1 | www.amazon.com |
+| India | webservices.amazon.in | eu-west-1 | www.amazon.in |
+| UK | webservices.amazon.co.uk | eu-west-1 | www.amazon.co.uk |
+| Germany | webservices.amazon.de | eu-west-1 | www.amazon.de |
+| Japan | webservices.amazon.co.jp | us-west-2 | www.amazon.co.jp |
 
 ### Step 4: Basic Implementation
 ```python
@@ -688,4 +720,60 @@ def create_session_with_retries():
 
 ---
 
-This comprehensive reference document provides everything needed to effectively implement and use Amazon PA-API 5.0 in your MandiMonitor project. Refer to specific sections as needed during development and implementation.
+## 🔍 **Implementation Lessons Learned**
+
+### **Critical Success Factors**
+Based on real-world implementation experience with MandiMonitor:
+
+#### **1. Library Choice Matters**
+- **✅ SUCCESS**: Using `paapi5-python-sdk` (official SDK) - Works immediately
+- **❌ FAILURE**: Using `amazon-paapi` (third-party) - Immediate rate limiting issues
+
+#### **2. Regional Configuration is Critical for Non-US Markets**
+- **✅ SUCCESS**: Complete configuration with host + region + marketplace
+- **❌ FAILURE**: Using only `country="IN"` parameter
+
+**Working India Configuration:**
+```python
+# This works perfectly
+api = DefaultApi(
+    access_key="your_key",
+    secret_key="your_secret", 
+    host="webservices.amazon.in",    # Critical for India
+    region="eu-west-1"               # Required region
+)
+
+request = GetItemsRequest(
+    partner_tag="your_tag",
+    marketplace="www.amazon.in",     # Must match host
+    # ... other parameters
+)
+```
+
+#### **3. Request Structure Must Be Explicit**
+- **✅ SUCCESS**: Using proper request objects (`GetItemsRequest`, `SearchItemsRequest`)
+- **❌ FAILURE**: Direct method calls with parameters
+
+#### **4. Debugging Tips**
+- **Always check `x-amzn-RequestId`** in error responses for Amazon support
+- **Test with known working ASINs** first (e.g., B07DL6L8QX for India)
+- **Use the official examples** as your blueprint before customization
+
+### **Common Mistakes to Avoid**
+1. ❌ Using third-party libraries instead of official SDK
+2. ❌ Missing regional configuration for non-US markets  
+3. ❌ Not including marketplace parameter in requests
+4. ❌ Using simple method calls instead of request objects
+5. ❌ Not handling region-specific browse node IDs and language codes
+
+### **Verification Checklist**
+Before deploying PA-API integration:
+- [ ] Using `paapi5-python-sdk` (official library)
+- [ ] Correct host/region/marketplace for target country
+- [ ] Request objects properly structured with all required parameters
+- [ ] Error handling includes request ID logging
+- [ ] Tested with known working ASINs for your marketplace
+
+---
+
+This comprehensive reference document provides everything needed to effectively implement and use Amazon PA-API 5.0 in your MandiMonitor project. The lessons learned section addresses real-world implementation challenges discovered during development.

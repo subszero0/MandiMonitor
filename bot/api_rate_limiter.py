@@ -78,19 +78,20 @@ class APIRateLimiter:
                 await asyncio.sleep(sleep_time)
 
     async def _enforce_rate_limit(self, now: float, priority: str) -> None:
-        """Enforce rate limit (1 request per second)."""
+        """Enforce rate limit (1 request per second with conservative buffer)."""
         if self.requests:
             last_request = self.requests[-1]
-            sleep_time = 1.0 - (now - last_request)
+            # Add 0.5s buffer to be more conservative
+            sleep_time = 1.5 - (now - last_request)
 
             # Adjust sleep time based on priority
             if priority == "high":
-                sleep_time *= 0.8  # High priority gets 20% faster processing
+                sleep_time *= 0.9  # High priority gets 10% faster processing
             elif priority == "low":
-                sleep_time *= 1.2  # Low priority gets 20% slower processing
+                sleep_time *= 1.3  # Low priority gets 30% slower processing
 
             if sleep_time > 0:
-                log.debug(
+                log.info(
                     "API rate limiter: rate limit, sleeping %.2fs (priority: %s)",
                     sleep_time,
                     priority,
@@ -159,3 +160,12 @@ async def acquire_api_permission(priority: str = "normal") -> None:
     """
     limiter = get_rate_limiter()
     await limiter.acquire(priority)
+
+
+def reset_rate_limiter() -> None:
+    """Reset the rate limiter state (useful for testing or recovery)."""
+    global _rate_limiter
+    if _rate_limiter:
+        _rate_limiter.requests.clear()
+        _rate_limiter.burst_requests.clear()
+        log.info("Rate limiter state reset")
