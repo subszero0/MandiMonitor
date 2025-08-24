@@ -17,6 +17,8 @@ from paapi5_python_sdk.models.partner_type import PartnerType
 from paapi5_python_sdk.models.search_items_request import SearchItemsRequest
 from paapi5_python_sdk.models.search_items_resource import SearchItemsResource
 from paapi5_python_sdk.models.search_index import SearchIndex
+from paapi5_python_sdk.models.get_browse_nodes_request import GetBrowseNodesRequest
+from paapi5_python_sdk.models.get_browse_nodes_resource import GetBrowseNodesResource
 from paapi5_python_sdk.rest import ApiException
 
 from .api_rate_limiter import acquire_api_permission
@@ -495,6 +497,85 @@ class OfficialPaapiClient:
             data["image_url"] = item.images.primary.medium.url
 
         return data
+
+    async def get_browse_nodes_hierarchy(
+        self, browse_node_id: int, priority: str = "normal"
+    ) -> Dict:
+        """Get complete category hierarchy information using official SDK.
+
+        Args:
+        ----
+            browse_node_id: Browse node ID to fetch
+            priority: Request priority for rate limiting
+
+        Returns:
+        -------
+            Dict with browse node hierarchy information
+
+        Raises:
+        ------
+            QuotaExceededError: When PA-API quota is exceeded
+        """
+        await acquire_api_permission(priority)
+
+        try:
+            result = await asyncio.to_thread(self._sync_get_browse_nodes, browse_node_id)
+            return result
+        except ApiException as exc:
+            if exc.status in [503, 429]:
+                log.warning("PA-API quota exceeded for browse node: %s", browse_node_id)
+                raise QuotaExceededError(f"PA-API quota exceeded for browse node {browse_node_id}") from exc
+            log.error("PA-API browse node error: %s", exc)
+            log.error("Request ID: %s", exc.headers.get("x-amzn-RequestId", "N/A"))
+            raise
+        except Exception as exc:
+            log.error("Unexpected PA-API browse node error: %s", exc)
+            raise
+
+    def _sync_get_browse_nodes(self, browse_node_id: int) -> Dict:
+        """Synchronous browse nodes implementation using official SDK."""
+        # Create the request object
+        get_browse_nodes_request = GetBrowseNodesRequest(
+            partner_tag=settings.PAAPI_TAG,
+            partner_type=PartnerType.ASSOCIATES,
+            marketplace=settings.PAAPI_MARKETPLACE,  # "www.amazon.in"
+            browse_node_ids=[str(browse_node_id)],
+            resources=[
+                GetBrowseNodesResource.ANCESTOR,
+                GetBrowseNodesResource.CHILDREN,
+                GetBrowseNodesResource.SALESRANK,
+            ]
+        )
+
+        try:
+            response = self.api.get_browse_nodes(get_browse_nodes_request)
+            
+            if not response.browse_nodes_result or not response.browse_nodes_result.browse_nodes:
+                raise ValueError(f"No browse node found for ID: {browse_node_id}")
+
+            node = response.browse_nodes_result.browse_nodes[0]
+            
+            return {
+                "id": node.id,
+                "name": node.display_name,
+                "children": [
+                    {"id": child.id, "name": child.display_name}
+                    for child in (node.children or [])
+                ],
+                "ancestors": [
+                    {"id": ancestor.id, "name": ancestor.display_name}
+                    for ancestor in (node.ancestor or [])
+                ],
+                "sales_rank": getattr(node, "sales_rank", None),
+            }
+
+        except ApiException as e:
+            log.error("Official PA-API browse nodes request failed: Status %s, Body: %s", e.status, e.body)
+            log.error("Request ID: %s", e.headers.get("x-amzn-RequestId", "N/A"))
+            raise
+        except Exception as e:
+            log.error("Official PA-API browse nodes request failed: %s", e)
+            raise
 
 
 # Factory function for dependency injection

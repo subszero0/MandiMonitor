@@ -10,7 +10,7 @@ from .cache_service import engine
 from .category_manager import CategoryManager
 from .enhanced_models import SearchQuery, Product
 from .models import Watch
-from .paapi_enhanced import search_items_advanced
+from .paapi_factory import search_items_advanced
 
 log = getLogger(__name__)
 

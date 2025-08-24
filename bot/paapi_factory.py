@@ -45,6 +45,12 @@ class PaapiClientProtocol(Protocol):
     ):
         """Search for products with advanced filtering."""
         ...
+        
+    async def get_browse_nodes_hierarchy(
+        self, browse_node_id: int, priority: str = "normal"
+    ):
+        """Get browse nodes hierarchy."""
+        ...
 
 
 class LegacyPaapiClient:
@@ -102,6 +108,12 @@ class LegacyPaapiClient:
             browse_node_id=browse_node_id,
             priority=priority,
         )
+        
+    async def get_browse_nodes_hierarchy(
+        self, browse_node_id: int, priority: str = "normal"
+    ):
+        """Get browse nodes hierarchy using legacy implementation."""
+        return await self._paapi.get_browse_nodes_hierarchy(browse_node_id, priority)
 
 
 def get_paapi_client() -> PaapiClientProtocol:
@@ -175,3 +187,11 @@ async def search_items_advanced(
         browse_node_id=browse_node_id,
         priority=priority,
     )
+
+
+async def get_browse_nodes_hierarchy(
+    browse_node_id: int, priority: str = "normal"
+):
+    """Get browse nodes hierarchy using the active PA-API client."""
+    client = get_paapi_client()
+    return await client.get_browse_nodes_hierarchy(browse_node_id, priority)

@@ -8,7 +8,7 @@ from sqlmodel import Session, create_engine, select
 
 from .errors import QuotaExceededError
 from .models import Cache
-from .paapi_enhanced import get_item_detailed
+from .paapi_factory import get_item_detailed
 from .scraper import scrape_price
 
 log = getLogger(__name__)

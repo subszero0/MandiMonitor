@@ -14,7 +14,7 @@ from telegram.ext import ContextTypes
 from .cache_service import engine, get_price
 from .carousel import build_single_card
 from .models import User, Watch
-from .paapi_enhanced import get_item_detailed, search_items_advanced
+from .paapi_factory import get_item_detailed, search_items_advanced
 from .paapi_health import is_in_cooldown, set_rate_limit_cooldown
 from .ui_helpers import build_brand_buttons, build_discount_buttons, build_price_buttons, build_mode_buttons
 from .watch_parser import parse_watch, validate_watch_data

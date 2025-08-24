@@ -10,7 +10,7 @@ from .api_rate_limiter import acquire_api_permission
 from .cache_service import engine
 from .enhanced_models import BrowseNode, ProductBrowseNode
 from .errors import QuotaExceededError
-from .paapi_enhanced import get_browse_nodes_hierarchy
+from .paapi_factory import get_browse_nodes_hierarchy
 
 log = getLogger(__name__)
 

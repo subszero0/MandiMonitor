@@ -10,7 +10,7 @@ from .cache_service import engine
 from .category_manager import CategoryManager
 from .enhanced_models import Product, ProductOffers
 from .models import Watch, Price
-from .paapi_enhanced import search_items_advanced, get_item_detailed
+from .paapi_factory import search_items_advanced, get_item_detailed
 from .smart_search import SmartSearchEngine
 from .watch_parser import parse_watch, validate_watch_data
 
