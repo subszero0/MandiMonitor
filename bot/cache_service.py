@@ -46,7 +46,7 @@ async def get_price_async(asin: str) -> int:
         try:
             log.info("Fetching price via enhanced PA-API for ASIN: %s", asin)
             item_data = await get_item_detailed(asin, priority="high")  # High priority for user requests
-            price = item_data.get("offers", {}).get("price")
+            price = item_data.get("price")
             if price:
                 log.info("Enhanced PA-API returned price for ASIN %s: %d paise", asin, price)
             else:
@@ -131,7 +131,7 @@ def get_price(asin: str) -> int:
         try:
             log.info("Fetching price via enhanced PA-API for ASIN: %s", asin)
             item_data = asyncio.run(get_item_detailed(asin, priority="high"))
-            price = item_data.get("offers", {}).get("price")
+            price = item_data.get("price")
             if price:
                 log.info("Enhanced PA-API returned price for ASIN %s: %d paise", asin, price)
             else:

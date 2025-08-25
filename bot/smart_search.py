@@ -497,7 +497,7 @@ class SmartSearchEngine:
             
             # Price range preference
             if user_preferences.get("price_range"):
-                result_price = result.get("offers", {}).get("price", 0)
+                result_price = result.get("price", 0)
                 if result_price > 0:
                     price_rs = result_price / 100
                     pref_range = user_preferences["price_range"]

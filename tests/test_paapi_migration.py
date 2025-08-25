@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from bot.config import settings
-from bot.paapi_factory import get_paapi_client, LegacyPaapiClient
+from bot.paapi_factory import get_paapi_client
 from bot.paapi_official import OfficialPaapiClient
 from bot.paapi_resource_manager import get_resource_manager, refresh_resource_manager
 
@@ -73,20 +73,23 @@ class TestPaapiMigration:
         assert len(minimal) <= len(detailed) <= len(full)
 
     @pytest.mark.asyncio 
-    async def test_data_structure_compatibility(self):
-        """Test that both implementations return compatible data structures."""
+    async def test_official_client_data_structure(self):
+        """Test that official PA-API client returns expected data structure."""
         test_asin = "B07DL6L8QX"  # Known working ASIN
         
-        # Mock the actual API calls since we're testing structure compatibility
-        mock_legacy_response = {
+        # Mock the official SDK response
+        mock_official_response = {
             "asin": test_asin,
             "title": "Test Product",
             "brand": "Test Brand",
+            "price": 49699,  # Root level price (official SDK format)
+            "list_price": 59999,
+            "rating": 4.5,
+            "review_count": 123,
+            "image_url": "https://example.com/large.jpg",
             "offers": {
                 "price": 49699,
                 "list_price": 59999,
-                "savings": 10300,
-                "savings_percent": 17,
                 "availability": "In Stock"
             },
             "reviews": {
@@ -99,66 +102,69 @@ class TestPaapiMigration:
             }
         }
         
-        # Test legacy client response structure
-        with patch('bot.paapi_enhanced.get_item_detailed') as mock_legacy:
-            mock_legacy.return_value = mock_legacy_response
+        # Test official client response structure
+        with patch('bot.paapi_official.OfficialPaapiClient.get_item_detailed') as mock_official:
+            mock_official.return_value = mock_official_response
             
-            legacy_client = LegacyPaapiClient()
-            legacy_result = await legacy_client.get_item_detailed(test_asin)
+            from bot.paapi_factory import get_paapi_client
+            client = get_paapi_client()
+            result = await client.get_item_detailed(test_asin)
             
-            # Verify expected structure
-            assert "asin" in legacy_result
-            assert "title" in legacy_result
-            assert "offers" in legacy_result
-            assert "price" in legacy_result["offers"]
-            assert "reviews" in legacy_result
+            # Verify expected structure (root-level price)
+            assert "asin" in result
+            assert "title" in result
+            assert "price" in result  # Root level price
+            assert result["price"] == 49699
 
     @pytest.mark.asyncio
-    async def test_error_handling_consistency(self):
-        """Test that both implementations handle errors consistently."""
+    async def test_official_client_error_handling(self):
+        """Test that official PA-API client handles errors correctly."""
         from bot.errors import QuotaExceededError
         
         # Mock API calls to raise specific errors
-        with patch('bot.paapi_enhanced.get_item_detailed') as mock_legacy:
-            mock_legacy.side_effect = QuotaExceededError("Test quota error")
+        with patch('bot.paapi_official.OfficialPaapiClient.get_item_detailed') as mock_official:
+            mock_official.side_effect = QuotaExceededError("Test quota error")
             
-            legacy_client = LegacyPaapiClient()
+            from bot.paapi_factory import get_paapi_client
+            client = get_paapi_client()
             
             with pytest.raises(QuotaExceededError):
-                await legacy_client.get_item_detailed("INVALID_ASIN")
+                await client.get_item_detailed("INVALID_ASIN")
 
     @pytest.mark.asyncio
-    async def test_search_functionality_parity(self):
-        """Test that search functionality works consistently across implementations."""
+    async def test_official_search_functionality(self):
+        """Test that official PA-API search functionality works correctly."""
         test_keywords = "laptop"
         
         mock_search_response = [
             {
                 "asin": "B123456789",
                 "title": "Test Laptop",
-                "price": 89999,
+                "price": 89999,  # Root level price
                 "rating": 4.2,
                 "image_url": "https://example.com/laptop.jpg"
             },
             {
                 "asin": "B987654321", 
                 "title": "Another Laptop",
-                "price": 79999,
+                "price": 79999,  # Root level price
                 "rating": 4.0,
                 "image_url": "https://example.com/laptop2.jpg"
             }
         ]
         
-        with patch('bot.paapi_enhanced.search_items_advanced') as mock_legacy:
-            mock_legacy.return_value = mock_search_response
+        with patch('bot.paapi_official.OfficialPaapiClient.search_items_advanced') as mock_official:
+            mock_official.return_value = mock_search_response
             
-            legacy_client = LegacyPaapiClient()
-            legacy_results = await legacy_client.search_items_advanced(keywords=test_keywords)
+            from bot.paapi_factory import get_paapi_client
+            client = get_paapi_client()
+            results = await client.search_items_advanced(keywords=test_keywords)
             
-            assert isinstance(legacy_results, list)
-            assert len(legacy_results) == 2
-            assert all("asin" in item for item in legacy_results)
-            assert all("title" in item for item in legacy_results)
+            assert isinstance(results, list)
+            assert len(results) == 2
+            assert results[0]["price"] == 89999  # Root level price access
+            assert all("asin" in item for item in results)
+            assert all("title" in item for item in results)
 
     def test_configuration_compatibility(self):
         """Test that configuration works for both implementations."""

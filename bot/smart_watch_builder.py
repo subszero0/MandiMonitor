@@ -422,7 +422,7 @@ class SmartWatchBuilder:
                 alternative = {
                     "asin": product.get("asin"),
                     "title": product.get("title"),
-                    "price": product.get("offers", {}).get("price"),
+                    "price": product.get("price"),
                     "rating": product.get("reviews", {}).get("average_rating"),
                     "image": product.get("images", {}).get("medium"),
                     "reason": "Similar product with good ratings"
@@ -456,7 +456,7 @@ class SmartWatchBuilder:
         """
         prices = []
         for product in products:
-            price = product.get("offers", {}).get("price")
+            price = product.get("price")
             if price and price > 0:
                 prices.append(price / 100)  # Convert to rupees
         
@@ -635,7 +635,7 @@ class SmartWatchBuilder:
         """
         # Filter based on user preferences
         if user_preferences.get("max_price"):
-            variation_price = variation.get("offers", {}).get("price", 0)
+            variation_price = variation.get("price", 0)
             if variation_price > user_preferences["max_price"] * 100:  # Convert to paise
                 return None
         
@@ -647,7 +647,7 @@ class SmartWatchBuilder:
         return {
             "asin": variation.get("asin"),
             "title": variation.get("title"),
-            "price": variation.get("offers", {}).get("price"),
+            "price": variation.get("price"),
             "image": variation.get("images", {}).get("medium"),
             "rating": variation.get("reviews", {}).get("average_rating"),
             "suggestion_reason": "Product variation matching your criteria"

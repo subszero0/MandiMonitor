@@ -14,8 +14,7 @@ class Settings(BaseSettings):
     TIMEZONE: str = "Asia/Kolkata"
     AMAZON_COOKIES: str | None = None  # Optional cookies for enhanced scraping
     
-    # PA-API Migration Feature Flag
-    USE_NEW_PAAPI_SDK: bool = False  # Feature flag for migrating to official paapi5-python-sdk
+    # PA-API Configuration (using official paapi5-python-sdk only)
     
     # NEW: Regional configuration for official PA-API SDK
     PAAPI_HOST: str = "webservices.amazon.in"

@@ -405,14 +405,13 @@ async def click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     from .affiliate import build_affiliate_url
 
     query = update.callback_query
-    await query.answer()
 
     # Parse callback data: "click:watch_id:asin"
     try:
         _, watch_id_str, asin = query.data.split(":", 2)
         watch_id = int(watch_id_str)
     except (ValueError, IndexError):
-        await query.edit_message_text("❌ Invalid link. Please try again.")
+        await query.answer("❌ Invalid link. Please try again.")
         return
 
     # Log the click
@@ -423,6 +422,8 @@ async def click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Redirect to affiliate URL with cache_time=0
     affiliate_url = build_affiliate_url(asin)
+    
+    # Answer callback query with URL redirect (this opens the URL)
     await query.answer(url=affiliate_url, cache_time=0)
 
 

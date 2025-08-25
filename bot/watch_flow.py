@@ -145,7 +145,7 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_resu
             {
                 "title": item.get("title", ""),
                 "asin": item.get("asin", ""),
-                "price": item.get("offers", {}).get("price")
+                "price": item.get("price")  # Price is at root level in official PA-API response
             }
             for item in search_results
         ]
@@ -293,7 +293,7 @@ async def get_dynamic_price_ranges(search_query: str, cached_results: list = Non
             {
                 "title": item.get("title", ""),
                 "asin": item.get("asin", ""),
-                "price": item.get("offers", {}).get("price")
+                "price": item.get("price")  # Price is at root level in official PA-API response
             }
             for item in search_results
         ]
@@ -778,7 +778,7 @@ async def _finalize_watch(
                     item_data = await get_item_detailed(asin, priority="high")
                     title = item_data.get("title", watch_data["keywords"])
                     image_url = item_data.get("images", {}).get("large", "https://m.media-amazon.com/images/I/81.png")
-                    price = item_data.get("offers", {}).get("price")
+                    price = item_data.get("price")
                     log.info("Enhanced PA-API succeeded for ASIN %s", asin)
                 except Exception as e:
                     log.warning("PA-API failed for ASIN %s: %s, trying scraper", asin, e)

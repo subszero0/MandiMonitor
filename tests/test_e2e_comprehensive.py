@@ -66,14 +66,13 @@ class TestE2EWatchCreationFlow:
     
     def setup_test_environment(self):
         """Set up test environment with mocked dependencies."""
-        # Ensure we're using the official SDK for testing
-        original_flag = settings.USE_NEW_PAAPI_SDK
-        settings.USE_NEW_PAAPI_SDK = True
-        return original_flag
+        # No special setup needed - we only use official SDK now
+        return None
     
-    def cleanup_test_environment(self, original_flag):
+    def cleanup_test_environment(self, original_state):
         """Clean up test environment."""
-        settings.USE_NEW_PAAPI_SDK = original_flag
+        # No cleanup needed
+        pass
     
     async def test_currency_conversion_accuracy(self):
         """Test that prices are displayed correctly in INR, not paise."""
@@ -367,6 +366,77 @@ class TestE2EWatchCreationFlow:
                 raise AssertionError(f"Message formatting failed for title '{title}': {e}")
         
         log.info("✅ Telegram message formatting test passed")
+    
+    async def test_price_extraction_structure(self):
+        """Test that price extraction works with official PA-API data structure."""
+        log.info("🧪 Testing price extraction from official PA-API data structure...")
+        
+        from bot.watch_flow import get_dynamic_price_ranges
+        
+        # Mock search results in the format returned by official PA-API
+        mock_official_results = [
+            {"title": "Gaming Monitor 24inch", "asin": "B123456789", "price": 2499900},  # ₹24,999 in paise
+            {"title": "Budget Monitor", "asin": "B987654321", "price": 1199900},  # ₹11,999 in paise  
+            {"title": "Premium Monitor", "asin": "B456789123", "price": 4999900},  # ₹49,999 in paise
+            {"title": "Entry Monitor", "asin": "B789123456", "price": 899900},   # ₹8,999 in paise
+        ]
+        
+        try:
+            price_ranges = await get_dynamic_price_ranges("gaming monitor", cached_results=mock_official_results)
+            
+            assert isinstance(price_ranges, list), f"Price ranges should be list, got: {type(price_ranges)}"
+            assert len(price_ranges) > 0, f"Should generate price ranges, got: {price_ranges}"
+            
+            # Verify each price range has proper structure
+            for display, value in price_ranges:
+                assert isinstance(display, str), f"Display should be string: {display}"
+                assert isinstance(value, int), f"Value should be int: {value}"
+                assert "₹" in display, f"Display should contain currency symbol: {display}"
+                assert "Under ₹" in display, f"Display should start with 'Under ₹': {display}"
+            
+            # Verify that prices are in reasonable ranges (converted from paise properly)
+            max_range_value = max(price for _, price in price_ranges)
+            assert max_range_value >= 10000, f"Max price range should be reasonable: {max_range_value}"
+            assert max_range_value <= 100000, f"Max price range should not be excessive: {max_range_value}"
+            
+            log.info(f"✅ Price extraction successful - {len(price_ranges)} ranges: {[r[0] for r in price_ranges]}")
+            
+        except Exception as e:
+            raise AssertionError(f"Price extraction from official PA-API structure failed: {e}")
+    
+    async def test_affiliate_url_validation(self):
+        """Test that affiliate URLs are properly formatted for Telegram."""
+        log.info("🧪 Testing affiliate URL format validation...")
+        
+        from bot.affiliate import build_affiliate_url
+        
+        test_asins = ["B0CKLR51ZP", "B08N5WRWNW", "B0DQP36N7T"]
+        
+        for asin in test_asins:
+            try:
+                affiliate_url = build_affiliate_url(asin)
+                
+                # Verify URL format
+                assert affiliate_url.startswith("https://"), f"URL should start with https://: {affiliate_url}"
+                assert "amazon.in/dp/" in affiliate_url, f"URL should contain amazon.in/dp/: {affiliate_url}"
+                assert asin in affiliate_url, f"URL should contain ASIN {asin}: {affiliate_url}"
+                assert "tag=mandimonitor-21" in affiliate_url, f"URL should contain affiliate tag: {affiliate_url}"
+                assert "linkCode=ogi" in affiliate_url, f"URL should contain link code: {affiliate_url}"
+                
+                # Verify URL doesn't have problematic characters for Telegram
+                assert '"' not in affiliate_url, f"URL should not contain quotes: {affiliate_url}"
+                assert "'" not in affiliate_url, f"URL should not contain apostrophes: {affiliate_url}"
+                assert " " not in affiliate_url, f"URL should not contain spaces: {affiliate_url}"
+                
+                # Verify reasonable URL length (Telegram has limits)
+                assert len(affiliate_url) < 500, f"URL should be reasonable length: {len(affiliate_url)}"
+                
+                log.info(f"✅ Affiliate URL valid for {asin}: {affiliate_url[:50]}...")
+                
+            except Exception as e:
+                raise AssertionError(f"Affiliate URL validation failed for {asin}: {e}")
+        
+        log.info("✅ Affiliate URL validation test passed")
 
 
 class TestE2EErrorHandling:
@@ -487,19 +557,20 @@ async def test_comprehensive_e2e_flow():
         (currency_test.test_telegram_ui_components, "Telegram UI Components"),
         (currency_test.test_price_filtering_logic, "Price Filtering Logic"),
         (currency_test.test_telegram_message_formatting, "Telegram Message Formatting"),
+        (currency_test.test_price_extraction_structure, "Price Extraction Structure"),
+        (currency_test.test_affiliate_url_validation, "Affiliate URL Validation"),
         (error_test.test_missing_asin_handling, "Missing ASIN Handling"),
         (error_test.test_invalid_callback_data, "Invalid Callback Data"),
         (performance_test.test_concurrent_requests, "Concurrent Requests"),
     ]
     
     for test_method, test_name in test_methods:
-        original_flag = None
         try:
             print(f"\n🧪 Running: {test_name}")
             
             # Set up test environment for methods that need it
             if hasattr(currency_test, 'setup_test_environment'):
-                original_flag = currency_test.setup_test_environment()
+                original_state = currency_test.setup_test_environment()
             
             await test_method()
             results["passed"] += 1
@@ -512,8 +583,8 @@ async def test_comprehensive_e2e_flow():
             print(f"⚠️  WARNING: {test_name} - {e}")
         finally:
             # Clean up if we set up
-            if original_flag is not None and hasattr(currency_test, 'cleanup_test_environment'):
-                currency_test.cleanup_test_environment(original_flag)
+            if 'original_state' in locals() and hasattr(currency_test, 'cleanup_test_environment'):
+                currency_test.cleanup_test_environment(original_state)
     
     # Summary
     print("\n" + "="*80)

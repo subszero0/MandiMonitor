@@ -29,7 +29,7 @@ class ResourceManager:
     
     def __init__(self):
         """Initialize the resource manager."""
-        self.use_official_sdk = settings.USE_NEW_PAAPI_SDK and OFFICIAL_SDK_AVAILABLE
+        self.use_official_sdk = OFFICIAL_SDK_AVAILABLE  # Always use official SDK
         
         # Cache for resource lookups
         self._resource_cache = {}
