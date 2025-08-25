@@ -420,11 +420,38 @@ async def click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         session.add(click)
         session.commit()
 
-    # Redirect to affiliate URL with cache_time=0
-    affiliate_url = build_affiliate_url(asin)
+    # Build affiliate URL with fallback to standard Amazon URL
+    try:
+        affiliate_url = build_affiliate_url(asin)
+        
+        # Validate the URL is not empty or None
+        if not affiliate_url or affiliate_url.strip() == "":
+            raise ValueError("Empty affiliate URL")
+            
+        # Basic URL validation
+        if not affiliate_url.startswith(("http://", "https://")):
+            raise ValueError("Invalid URL format")
+            
+    except Exception as e:
+        logger.warning("Failed to build affiliate URL for ASIN %s: %s. Using standard Amazon URL.", asin, e)
+        # Fallback to standard Amazon product URL
+        affiliate_url = f"https://www.amazon.in/dp/{asin}"
     
-    # Answer callback query with URL redirect (this opens the URL)
-    await query.answer(url=affiliate_url, cache_time=0)
+    # Send the affiliate URL directly to the user instead of using callback query URL
+    try:
+        # First acknowledge the callback query
+        await query.answer("🛒 Opening Amazon link...")
+        
+        # Then send the affiliate URL as a message
+        await query.message.reply_text(
+            f"🛒 **Buy Now**: {affiliate_url}\n\n"
+            f"💡 *Tap the link above to open in your browser*",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error("Failed to send affiliate URL %s: %s", affiliate_url, e)
+        # Fallback: show error message
+        await query.answer("❌ Unable to generate product link. Please try again later.")
 
 
 async def handle_text_message(

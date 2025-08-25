@@ -31,7 +31,7 @@ class PaapiClientProtocol(Protocol):
         min_savings_percent=None,
         merchant: str = "All",
         condition: str = "New",
-        item_count: int = 10,
+        item_count: int = 30,
         item_page: int = 1,
         sort_by=None,
         browse_node_id=None,
@@ -47,7 +47,7 @@ class PaapiClientProtocol(Protocol):
         ...
 
 
-def get_paapi_client() -> PaapiClientProtocol:
+async def get_paapi_client() -> PaapiClientProtocol:
     """Get the official PA-API client.
     
     Returns:
@@ -69,7 +69,7 @@ async def get_item_detailed(
     asin: str, resources=None, priority: str = "normal"
 ):
     """Get detailed product information using the active PA-API client."""
-    client = get_paapi_client()
+    client = await get_paapi_client()
     return await client.get_item_detailed(asin, resources, priority)
 
 
@@ -84,14 +84,14 @@ async def search_items_advanced(
     min_savings_percent=None,
     merchant: str = "All",
     condition: str = "New",
-    item_count: int = 10,
+    item_count: int = 30,
     item_page: int = 1,
     sort_by=None,
     browse_node_id=None,
     priority: str = "normal",
 ):
     """Search for products using the active PA-API client."""
-    client = get_paapi_client()
+    client = await get_paapi_client()
     return await client.search_items_advanced(
         keywords=keywords,
         title=title,
@@ -115,5 +115,5 @@ async def get_browse_nodes_hierarchy(
     browse_node_id: int, priority: str = "normal"
 ):
     """Get browse nodes hierarchy using the active PA-API client."""
-    client = get_paapi_client()
+    client = await get_paapi_client()
     return await client.get_browse_nodes_hierarchy(browse_node_id, priority)

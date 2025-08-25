@@ -154,7 +154,7 @@ class TestE2EWatchCreationFlow:
         
         # Test client creation
         try:
-            client = get_paapi_client()
+            client = await get_paapi_client()
             assert client is not None, "PA-API client creation failed"
             log.info("✅ PA-API client created successfully")
         except Exception as e:
@@ -503,7 +503,7 @@ class TestE2EPerformanceAndReliability:
             log.warning("⚠️ Skipping concurrent test - PA-API credentials not configured")
             return
         
-        client = get_paapi_client()
+        client = await get_paapi_client()
         
         # Create multiple concurrent requests
         tasks = []

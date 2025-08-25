@@ -334,7 +334,7 @@ class SmartSearchEngine:
         """
         params = {
             "keywords": query,
-            "item_count": 10,
+            "item_count": 30,
             "priority": "normal"
         }
         

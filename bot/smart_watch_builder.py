@@ -162,7 +162,7 @@ class SmartWatchBuilder:
                 search_query = f"{brand} {product_type}"
                 variations = await search_items_advanced(
                     keywords=search_query,
-                    item_count=10,
+                    item_count=30,
                     priority="normal"
                 )
                 
@@ -308,7 +308,7 @@ class SmartWatchBuilder:
             if enhanced_data.get("keywords"):
                 products = await search_items_advanced(
                     keywords=enhanced_data["keywords"],
-                    item_count=10,
+                    item_count=30,
                     priority="normal"
                 )
                 if products:

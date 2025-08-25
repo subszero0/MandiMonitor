@@ -28,7 +28,7 @@ _active_searches = {}  # Track ongoing searches to prevent duplicates
 log = logging.getLogger(__name__)
 
 
-async def _cached_search_items_advanced(keywords: str, item_count: int = 10, priority: str = "normal"):
+async def _cached_search_items_advanced(keywords: str, item_count: int = 30, priority: str = "normal"):
     """Enhanced cached version that completely eliminates duplicate API calls."""
     cache_key = f"{keywords}:{item_count}"
     current_time = time.time()
@@ -112,7 +112,7 @@ COMMON_BRANDS = [
 ]
 
 
-async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_results: list = None) -> list[str]:
+async def get_dynamic_brands(search_query: str, max_brands: int = 20, cached_results: list = None, max_price_filter: int = None, min_discount_filter: int = None) -> list[str]:
     """Get relevant brands from Amazon search results for the given query.
     
     Args:
@@ -120,6 +120,8 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_resu
         search_query: User's search query 
         max_brands: Maximum number of brands to return
         cached_results: Pre-fetched search results to avoid extra API calls
+        max_price_filter: Optional price filter to only show brands with products within this price
+        min_discount_filter: Optional discount filter to only show brands with products meeting discount requirement
         
     Returns:
     -------
@@ -137,7 +139,7 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_resu
             # Try enhanced PA-API only if no cached results provided (cached)
             search_results = await _cached_search_items_advanced(
                 keywords=search_query, 
-                item_count=10,
+                item_count=30,
                 priority="normal"
             )
         # Convert to expected format
@@ -145,10 +147,18 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_resu
             {
                 "title": item.get("title", ""),
                 "asin": item.get("asin", ""),
-                "price": item.get("price")  # Price is at root level in official PA-API response
+                "price": item.get("price"),  # Price is at root level in official PA-API response
+                "list_price": item.get("list_price"),  # List price for discount calculation
+                "savings_percent": item.get("savings_percent")  # Pre-calculated savings if available
             }
             for item in search_results
         ]
+        
+        # Debug: Log first few products to see actual structure
+        if search_results:
+            log.info("CONVERSION DEBUG - First 3 converted products:")
+            for i, item in enumerate(search_results[:3]):
+                log.info("Product %d: %s", i+1, item)
         
         # If PA-API failed or returned no results, try scraper fallback
         if not search_results:
@@ -164,6 +174,49 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_resu
         if not search_results:
             log.warning("No search results from any source for dynamic brand extraction: %s", search_query)
             return COMMON_BRANDS[:max_brands]
+        
+        # Apply filters if specified to ensure brands only come from relevant products
+        if max_price_filter or min_discount_filter:
+            filtered_results = []
+            log.info("Filtering %d products for brand extraction (price≤₹%s, discount≥%s%%)", 
+                    len(search_results), max_price_filter or "any", min_discount_filter or "any")
+            
+            for product in search_results:
+                include_product = True
+                
+                # Apply price filter
+                if max_price_filter and include_product:
+                    price = product.get("price")
+                    if price and isinstance(price, (int, float)) and price > 0:
+                        price_rs = price / 100 if price > 10000 else price
+                        if price_rs > max_price_filter:
+                            include_product = False
+                    else:
+                        # No price data - exclude from filtered brands
+                        include_product = False
+                
+                # Apply discount filter  
+                if min_discount_filter and include_product:
+                    list_price = product.get("list_price")
+                    current_price = product.get("price")
+                    if list_price and current_price and isinstance(list_price, (int, float)) and isinstance(current_price, (int, float)):
+                        if list_price > current_price:
+                            discount_percent = ((list_price - current_price) / list_price) * 100
+                            if discount_percent < min_discount_filter:
+                                include_product = False
+                        else:
+                            include_product = False  # No actual discount
+                    else:
+                        include_product = False  # No discount data
+                
+                if include_product:
+                    filtered_results.append(product)
+            
+            if filtered_results:
+                search_results = filtered_results
+                log.info("Filtered to %d products for brand extraction", len(filtered_results))
+            else:
+                log.warning("No products match filters for brand extraction, using unfiltered results")
         
         # Extract potential brands from product titles
         brands = set()
@@ -261,13 +314,15 @@ async def get_dynamic_brands(search_query: str, max_brands: int = 9, cached_resu
         return COMMON_BRANDS[:max_brands]
 
 
-async def get_dynamic_price_ranges(search_query: str, cached_results: list = None) -> list[tuple[str, int]]:
+async def get_dynamic_price_ranges(search_query: str, cached_results: list = None, brand_filter: str = None, min_discount_filter: int = None) -> list[tuple[str, int]]:
     """Get relevant price ranges from Amazon search results for the given query.
     
     Args:
     ----
         search_query: User's search query 
         cached_results: Pre-fetched search results to avoid extra API calls
+        brand_filter: Optional brand filter to only consider products from this brand
+        min_discount_filter: Optional discount filter to only consider products with this discount
         
     Returns:
     -------
@@ -285,7 +340,7 @@ async def get_dynamic_price_ranges(search_query: str, cached_results: list = Non
             # Search for products related to the query using enhanced PA-API only if needed (cached)
             search_results = await _cached_search_items_advanced(
                 keywords=search_query, 
-                item_count=10,
+                item_count=30,
                 priority="normal"
             )
         # Convert to expected format for price extraction
@@ -302,20 +357,108 @@ async def get_dynamic_price_ranges(search_query: str, cached_results: list = Non
             log.warning("No search results for dynamic price extraction: %s", search_query)
             return _get_default_price_ranges()
         
+        # Apply filters if specified to ensure price ranges only come from relevant products
+        if brand_filter or min_discount_filter:
+            filtered_results = []
+            log.info("Filtering %d products for price range extraction (brand='%s', discount≥%s%%)", 
+                    len(search_results), brand_filter or "any", min_discount_filter or "any")
+            
+            for product in search_results:
+                include_product = True
+                
+                # Apply brand filter
+                if brand_filter and include_product:
+                    title = product.get("title", "").lower()
+                    if brand_filter.lower() not in title:
+                        include_product = False
+                
+                # Apply discount filter  
+                if min_discount_filter and include_product:
+                    list_price = product.get("list_price")
+                    current_price = product.get("price")
+                    if list_price and current_price and isinstance(list_price, (int, float)) and isinstance(current_price, (int, float)):
+                        if list_price > current_price:
+                            discount_percent = ((list_price - current_price) / list_price) * 100
+                            if discount_percent < min_discount_filter:
+                                include_product = False
+                        else:
+                            include_product = False  # No actual discount
+                    else:
+                        include_product = False  # No discount data
+                
+                if include_product:
+                    filtered_results.append(product)
+            
+            if filtered_results:
+                search_results = filtered_results
+                log.info("Filtered to %d products for price range extraction", len(filtered_results))
+            else:
+                log.warning("No products match filters for price range extraction - using broader criteria")
+                # Instead of using completely unfiltered results, try relaxing filters incrementally
+                if brand_filter and min_discount_filter:
+                    # Try with brand only (remove discount filter)
+                    log.info("Trying price ranges with brand filter only (removing discount requirement)")
+                    filtered_results = [p for p in search_results if brand_filter.lower() in p.get("title", "").lower()]
+                    if filtered_results:
+                        search_results = filtered_results
+                        log.info("Found %d products with brand filter only", len(filtered_results))
+        
         # Extract prices from search results
         prices = []
         
-        for product in search_results:
+        for i, product in enumerate(search_results[:5]):  # Debug first 5 products
             price = product.get("price")
+            list_price = product.get("list_price")
+            log.info("PRICE DEBUG - Product %d: title='%s', price=%s (type=%s), list_price=%s (type=%s)", 
+                     i+1, product.get("title", "")[:50], price, type(price), list_price, type(list_price))
+            # Also log the full product structure for the first product
+            if i == 0:
+                log.info("STRUCTURE DEBUG - Full first product: %s", product)
             if price and isinstance(price, (int, float)) and price > 0:
                 # Convert to rupees if in paise
                 price_rs = price / 100 if price > 10000 else price
                 if 10 <= price_rs <= 1000000:  # Reasonable price range
                     prices.append(int(price_rs))
+                    log.debug("Added price: %s paise → ₹%s", price, int(price_rs))
+            elif price == 0:
+                log.debug("Zero price found for product: %s", product.get("title", "")[:50])
+            elif not price:
+                log.debug("No price data for product: %s", product.get("title", "")[:50])
         
         if not prices:
-            log.warning("No valid prices found for '%s', using default ranges", search_query)
-            return _get_default_price_ranges()
+            log.warning("No valid prices found from SearchItems for '%s' - trying GetItems fallback", search_query)
+            # Fallback: Try to get prices using GetItems for first few ASINs
+            try:
+                from .paapi_factory import get_paapi_client
+                client = await get_paapi_client()
+                
+                # Get ASINs from search results  
+                asins_to_check = [item.get("asin") for item in search_results[:10] if item.get("asin")][:5]  # Check first 5 ASINs
+                log.info("Attempting GetItems price lookup for ASINs: %s", asins_to_check)
+                
+                prices_from_getitems = []
+                for asin in asins_to_check:
+                    try:
+                        item_data = await client.get_item_detailed(asin, priority="high")
+                        if item_data and item_data.get("price"):
+                            price = item_data["price"]
+                            price_rs = price / 100 if price > 10000 else price
+                            if 10 <= price_rs <= 1000000:
+                                prices_from_getitems.append(int(price_rs))
+                                log.info("GetItems found price for %s: ₹%s", asin, int(price_rs))
+                    except Exception as e:
+                        log.debug("GetItems failed for ASIN %s: %s", asin, e)
+                        continue
+                
+                if prices_from_getitems:
+                    log.info("Using %d prices from GetItems fallback", len(prices_from_getitems))
+                    prices = prices_from_getitems
+                else:
+                    log.warning("GetItems fallback also failed, using default ranges")
+                    return _get_default_price_ranges()
+            except Exception as e:
+                log.warning("GetItems fallback error: %s, using default ranges", e)
+                return _get_default_price_ranges()
         
         # Sort prices to analyze distribution
         prices.sort()
@@ -575,7 +718,7 @@ async def _ask_for_missing_field(
                 log.info("Pre-fetching search results for dynamic options: %s", search_query)
                 search_results = await _cached_search_items_advanced(
                     keywords=search_query, 
-                    item_count=10,
+                    item_count=30,
                     priority="normal"
                 )
                 # Cache in user data to prevent future calls during this session
@@ -592,7 +735,17 @@ async def _ask_for_missing_field(
         
         if search_query and search_results is not None:
             try:
-                dynamic_brands = await get_dynamic_brands(search_query, cached_results=search_results)
+                # Get existing filters to make brand suggestions more relevant
+                pending_watch = context.user_data.get("pending_watch", {})
+                max_price = pending_watch.get("max_price")
+                min_discount = pending_watch.get("min_discount")
+                
+                dynamic_brands = await get_dynamic_brands(
+                    search_query, 
+                    cached_results=search_results,
+                    max_price_filter=max_price,
+                    min_discount_filter=min_discount
+                )
                 keyboard = build_brand_buttons(dynamic_brands)
             except Exception as e:
                 log.warning("Failed to get dynamic brands for '%s': %s, using fallback", search_query, e)
@@ -609,7 +762,17 @@ async def _ask_for_missing_field(
         
         if search_query and search_results is not None:
             try:
-                dynamic_ranges = await get_dynamic_price_ranges(search_query, cached_results=search_results)
+                # Get existing filters to make price suggestions more relevant
+                pending_watch = context.user_data.get("pending_watch", {})
+                selected_brand = pending_watch.get("brand")
+                min_discount = pending_watch.get("min_discount")
+                
+                dynamic_ranges = await get_dynamic_price_ranges(
+                    search_query, 
+                    cached_results=search_results,
+                    brand_filter=selected_brand,
+                    min_discount_filter=min_discount
+                )
                 keyboard = build_price_buttons(dynamic_ranges)
             except Exception as e:
                 log.warning("Failed to get dynamic price ranges for '%s': %s, using fallback", search_query, e)
@@ -695,7 +858,7 @@ async def _finalize_watch(
                         # Only make API call if we don't have cached results
                         search_results = await _cached_search_items_advanced(
                             keywords=watch_data["keywords"],
-                            item_count=10,  # Use same count as price range search for better cache hits
+                            item_count=30,  # Use same count as price range search for better cache hits
                             priority="high"  # High priority for user watch creation
                         )
                     if search_results:
@@ -708,10 +871,134 @@ async def _finalize_watch(
                             if brand_filtered:
                                 search_results = brand_filtered
                         
+                        # Filter results based on max_price if specified
+                        if watch_data.get("max_price"):
+                            max_price = watch_data["max_price"]
+                            log.info("Applying price filter ≤₹%s to %d products", max_price, len(search_results))
+                            
+                            # Check if any products have price data from SearchItems
+                            products_with_prices = [p for p in search_results if p.get("price")]
+                            
+                            if not products_with_prices:
+                                log.info("No price data from SearchItems, using GetItems to fetch pricing for filtering")
+                                # Enrich search results with GetItems pricing data
+                                try:
+                                    from .paapi_factory import get_paapi_client
+                                    client = await get_paapi_client()
+                                    
+                                    enriched_results = []
+                                    for i, product in enumerate(search_results):
+                                        asin = product.get("asin")
+                                        if asin:
+                                            try:
+                                                item_data = await client.get_item_detailed(asin, priority="high")
+                                                if item_data and item_data.get("price"):
+                                                    # Enrich with price data
+                                                    enriched_product = product.copy()
+                                                    enriched_product["price"] = item_data["price"]
+                                                    enriched_product["list_price"] = item_data.get("list_price")
+                                                    enriched_results.append(enriched_product)
+                                                    log.info("Enriched %s with price: ₹%s", asin, item_data["price"]//100 if item_data["price"] > 10000 else item_data["price"])
+                                                else:
+                                                    # Keep product without price
+                                                    enriched_results.append(product)
+                                            except Exception as e:
+                                                log.debug("Failed to enrich ASIN %s: %s", asin, e)
+                                                enriched_results.append(product)
+                                        else:
+                                            enriched_results.append(product)
+                                    
+                                    search_results = enriched_results
+                                    log.info("Enriched %d products with GetItems pricing data", len([p for p in search_results if p.get("price")]))
+                                
+                                except Exception as e:
+                                    log.warning("Failed to enrich with GetItems data: %s", e)
+                            
+                            # Now apply price filtering with enriched data
+                            price_filtered = []
+                            for i, product in enumerate(search_results):
+                                price = product.get("price")
+                                log.info("FINAL FILTER DEBUG - Product %d: title='%s', price=%s (type=%s)", 
+                                        i+1, product.get("title", "")[:40], price, type(price))
+                                if price and isinstance(price, (int, float)) and price > 0:
+                                    # Convert to rupees if in paise (same logic as price extraction)
+                                    price_rs = price / 100 if price > 10000 else price
+                                    log.info("FINAL FILTER DEBUG - Product %d: '%s' - Price: ₹%s (within limit: %s)", 
+                                             i+1, product.get("title", "")[:40], int(price_rs), price_rs <= max_price)
+                                    if price_rs <= max_price:
+                                        price_filtered.append(product)
+                                else:
+                                    log.debug("Product %d: '%s' - No valid price data", i+1, product.get("title", "")[:40])
+                            
+                            if price_filtered:
+                                search_results = price_filtered
+                                log.info("Applied price filter ≤₹%s, found %d matching products", max_price, len(price_filtered))
+                            else:
+                                log.warning("No products found within price limit ₹%s - will not create watch", max_price)
+                                # Don't create watch if no products meet price criteria
+                                await update.callback_query.edit_message_text(
+                                    f"❌ **No products found!**\n\n"
+                                    f"Couldn't find any **{watch_data.get('brand', '')} {watch_data['keywords']}** "
+                                    f"under **₹{max_price:,}**.\n\n"
+                                    f"💡 *Try:*\n"
+                                    f"• Increasing your budget\n"
+                                    f"• Removing brand filter\n"
+                                    f"• Using broader search terms",
+                                    parse_mode="Markdown"
+                                )
+                                return
+                        
+                        # Filter results based on min_discount if specified  
+                        if watch_data.get("min_discount"):
+                            min_discount = watch_data["min_discount"]
+                            discount_filtered = []
+                            log.info("Applying discount filter ≥%s%% to %d products", min_discount, len(search_results))
+                            for i, product in enumerate(search_results):
+                                # Check if product has discount information
+                                list_price = product.get("list_price")
+                                current_price = product.get("price")
+                                
+                                if list_price and current_price and isinstance(list_price, (int, float)) and isinstance(current_price, (int, float)):
+                                    if list_price > current_price:  # Ensure there's actually a discount
+                                        discount_percent = ((list_price - current_price) / list_price) * 100
+                                        log.debug("Product %d: '%s' - Discount: %s%% (meets requirement: %s)", 
+                                                 i+1, product.get("title", "")[:40], int(discount_percent), discount_percent >= min_discount)
+                                        if discount_percent >= min_discount:
+                                            discount_filtered.append(product)
+                                    else:
+                                        log.debug("Product %d: '%s' - No actual discount (list=current price)", i+1, product.get("title", "")[:40])
+                                else:
+                                    log.debug("Product %d: '%s' - No discount data available", i+1, product.get("title", "")[:40])
+                            
+                            if discount_filtered:
+                                search_results = discount_filtered
+                                log.info("Applied discount filter ≥%s%%, found %d matching products", min_discount, len(discount_filtered))
+                            else:
+                                log.warning("No products found with ≥%s%% discount - will not create watch", min_discount)
+                                # Don't create watch if no products meet discount criteria
+                                brand_text = f"{watch_data.get('brand', '')} " if watch_data.get('brand') else ""
+                                price_text = f" under ₹{watch_data.get('max_price', 0):,}" if watch_data.get('max_price') else ""
+                                await update.callback_query.edit_message_text(
+                                    f"❌ **No deals found!**\n\n"
+                                    f"Couldn't find any **{brand_text}{watch_data['keywords']}**{price_text} "
+                                    f"with **≥{min_discount}% discount**.\n\n"
+                                    f"💡 *Try:*\n"
+                                    f"• Lowering discount requirement\n"
+                                    f"• Removing price/brand filters\n"
+                                    f"• Checking back later for new deals",
+                                    parse_mode="Markdown"
+                                )
+                                return
+                        
                         # Use the first result as the best match
                         best_match = search_results[0]
                         asin = best_match.get("asin")
-                        log.info("Found ASIN %s for search: %s", asin, watch_data["keywords"])
+                        product_price = best_match.get("price")
+                        if product_price:
+                            price_rs = product_price / 100 if product_price > 10000 else product_price
+                            log.info("Found ASIN %s for search: %s (Price: ₹%s)", asin, watch_data["keywords"], int(price_rs))
+                        else:
+                            log.info("Found ASIN %s for search: %s (Price: Unknown)", asin, watch_data["keywords"])
                 except Exception as search_error:
                     log.warning("Product search failed for '%s': %s", watch_data["keywords"], search_error)
                     # Continue without ASIN - watch will still be created for future searches

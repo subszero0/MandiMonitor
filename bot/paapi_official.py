@@ -6,6 +6,7 @@ to the migration roadmap in paapi_corrections.md.
 """
 
 import asyncio
+import time
 from logging import getLogger
 from typing import Dict, List, Optional
 
@@ -134,7 +135,7 @@ class OfficialPaapiClient:
         min_savings_percent: Optional[int] = None,
         merchant: str = "All",
         condition: str = "New",
-        item_count: int = 10,
+        item_count: int = 30,
         item_page: int = 1,
         sort_by: Optional[str] = None,
         browse_node_id: Optional[int] = None,
@@ -154,7 +155,7 @@ class OfficialPaapiClient:
             min_savings_percent: Minimum discount percentage
             merchant: "Amazon" or "All" (ignored for now)
             condition: "New", "Used", "Refurbished"
-            item_count: Number of items to return (1-10)
+            item_count: Number of items to return (1-30, uses pagination for >10)
             item_page: Page number (1-10)
             sort_by: Sort criteria (ignored for now)
             browse_node_id: Specific category ID (ignored for now)
@@ -212,7 +213,7 @@ class OfficialPaapiClient:
         min_reviews_rating: Optional[float] = None,
         min_savings_percent: Optional[int] = None,
         condition: str = "New",
-        item_count: int = 10,
+        item_count: int = 30,
         item_page: int = 1,
     ) -> List[Dict]:
         """Synchronous search using official SDK."""
@@ -235,53 +236,89 @@ class OfficialPaapiClient:
         }
         api_condition = condition_map.get(condition, Condition.NEW)
         
+        # Force refresh resource manager to ensure latest resources are used
+        from .paapi_resource_manager import force_refresh_resources
+        force_refresh_resources()
+        
         # Get appropriate resources from resource manager
         resources = self.resource_manager.get_detailed_resources("search_items")
+        log.info("Using SearchItems resources: %s", [str(r) for r in resources])
         
-        # Create the search request
-        search_items_request = SearchItemsRequest(
-            partner_tag=settings.PAAPI_TAG,
-            partner_type=PartnerType.ASSOCIATES,
-            marketplace=settings.PAAPI_MARKETPLACE,  # "www.amazon.in"
-            keywords=final_keywords,
-            search_index=search_index,
-            condition=api_condition,
-            item_count=min(item_count, 10),  # Max 10 per request
-            item_page=item_page,
-            resources=resources
-        )
+        # Amazon PA-API has a hard limit of 10 items per SearchItems request
+        # To get more items, we need to use pagination
+        max_items_per_request = 10
+        all_items = []
+        pages_needed = min(3, (item_count + max_items_per_request - 1) // max_items_per_request)  # Max 3 pages for 30 items
         
-        # Add price filters if specified (convert paise to rupees)
-        # Note: PA-API expects price in currency units (rupees for INR)
-        # min_price and max_price are in paise, so divide by 100
-        # TODO: Implement price filtering when available in SDK
+        for page in range(1, pages_needed + 1):
+            items_for_this_page = min(max_items_per_request, item_count - len(all_items))
+            if items_for_this_page <= 0:
+                break
+                
+            # Create the search request for this page
+            search_items_request = SearchItemsRequest(
+                partner_tag=settings.PAAPI_TAG,
+                partner_type=PartnerType.ASSOCIATES,
+                marketplace=settings.PAAPI_MARKETPLACE,  # "www.amazon.in"
+                keywords=final_keywords,
+                search_index=search_index,
+                condition=api_condition,
+                item_count=items_for_this_page,  # Max 10 per request (Amazon limit)
+                item_page=page,
+                resources=resources
+            )
         
-        # Add review rating filter if specified
-        # TODO: Implement review rating filtering when available in SDK
-        
-        # Add savings percent filter if specified
-        # TODO: Implement savings filtering when available in SDK
-
-        try:
-            response = self.api.search_items(search_items_request)
+            # Add price filters if specified (convert paise to rupees)
+            # Note: PA-API expects price in currency units (rupees for INR)
+            # min_price and max_price are in paise, so divide by 100
+            # TODO: Implement price filtering when available in SDK
             
-            if not response.search_result or not response.search_result.items:
-                log.info("No items found for search: %s", final_keywords)
-                return []
-
-            items = []
-            for item in response.search_result.items:
-                items.append(self._extract_search_data(item))
+            # Add review rating filter if specified
+            # TODO: Implement review rating filtering when available in SDK
             
-            return items
+            # Add savings percent filter if specified
+            # TODO: Implement savings filtering when available in SDK
 
-        except ApiException as e:
-            log.error("Official PA-API search failed: Status %s, Body: %s", e.status, e.body)
-            log.error("Request ID: %s", e.headers.get("x-amzn-RequestId", "N/A"))
-            raise
-        except Exception as e:
-            log.error("Official PA-API search failed: %s", e)
-            raise
+            try:
+                log.info("Making PA-API SearchItems request for page %d/%d (items %d-%d)", 
+                        page, pages_needed, len(all_items) + 1, len(all_items) + items_for_this_page)
+                        
+                response = self.api.search_items(search_items_request)
+                
+                if not response.search_result or not response.search_result.items:
+                    log.info("No items found for search page %d: %s", page, final_keywords)
+                    break  # No more items available
+
+                page_items = []
+                for item in response.search_result.items:
+                    page_items.append(self._extract_search_data(item))
+                
+                all_items.extend(page_items)
+                log.info("Retrieved %d items from page %d, total so far: %d", 
+                        len(page_items), page, len(all_items))
+                
+                # Rate limiting: Wait 1 second between requests to respect PA-API limits
+                if page < pages_needed:  # Don't wait after the last request
+                    time.sleep(1.1)  # Slightly more than 1 second to be safe
+
+            except ApiException as e:
+                log.error("Official PA-API search failed on page %d: Status %s, Body: %s", page, e.status, e.body)
+                log.error("Request ID: %s", e.headers.get("x-amzn-RequestId", "N/A"))
+                if page == 1:  # If first page fails, raise error
+                    raise
+                else:  # If later pages fail, return what we have so far
+                    log.warning("Page %d failed, returning %d items from previous pages", page, len(all_items))
+                    break
+            except Exception as e:
+                log.error("Official PA-API search failed on page %d: %s", page, e)
+                if page == 1:  # If first page fails, raise error
+                    raise
+                else:  # If later pages fail, return what we have so far
+                    log.warning("Page %d failed, returning %d items from previous pages", page, len(all_items))
+                    break
+        
+        log.info("Pagination complete: Retrieved %d total items from %d pages", len(all_items), pages_needed)
+        return all_items
 
     def _extract_comprehensive_data(self, item) -> Dict:
         """Extract comprehensive data from official SDK item response.

@@ -19,7 +19,7 @@ from .enhanced_models import (
 )
 from .errors import QuotaExceededError
 from .paapi_factory import get_item_detailed
-from .paapi_enhanced import get_resources_for_context
+from .paapi_resource_manager import get_resources_for_context
 
 log = getLogger(__name__)
 

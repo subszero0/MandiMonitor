@@ -80,6 +80,9 @@ class ResourceManager:
             SearchItemsResource.ITEMINFO_TITLE,
             SearchItemsResource.ITEMINFO_BYLINEINFO,
             SearchItemsResource.OFFERS_LISTINGS_PRICE,
+            SearchItemsResource.OFFERS_LISTINGS_SAVINGBASIS,        # CRITICAL: For discount calculation
+            SearchItemsResource.OFFERS_SUMMARIES_LOWESTPRICE,       # Additional price data
+            SearchItemsResource.OFFERS_SUMMARIES_HIGHESTPRICE,      # Additional price data
             SearchItemsResource.OFFERS_LISTINGS_AVAILABILITY_TYPE,
             SearchItemsResource.IMAGES_PRIMARY_MEDIUM,
             SearchItemsResource.CUSTOMERREVIEWS_COUNT,
@@ -226,3 +229,14 @@ def refresh_resource_manager():
     global _resource_manager
     _resource_manager = None
     return get_resource_manager()
+
+def force_refresh_resources():
+    """Force refresh the global resource manager to pick up code changes."""
+    import logging
+    log = logging.getLogger(__name__)
+    global _resource_manager
+    log.info("FORCING RESOURCE MANAGER REFRESH")
+    _resource_manager = None
+    new_manager = get_resource_manager()
+    log.info("Resource manager refreshed, using official SDK: %s", new_manager.use_official_sdk)
+    return new_manager
