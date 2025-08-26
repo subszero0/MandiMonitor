@@ -1,0 +1,213 @@
+{
+  "description": "Golden ASIN dataset with verified specifications for Phase 2 regression testing",
+  "version": "1.0.0",
+  "created_date": "2025-08-26",
+  "last_updated": "2025-08-26",
+  "categories": {
+    "gaming_monitor": {
+      "description": "Gaming monitors with verified technical specifications",
+      "products": [
+        {
+          "asin": "B08N5WRWNW",
+          "title": "Samsung 27-Inch CRG5 Curved Gaming Monitor (LC27RG50FQNXZA) – 144Hz Refresh Rate, FHD 1920x1080p, Radeon FreeSync, Black",
+          "brand": "Samsung",
+          "verified_specs": {
+            "refresh_rate": "144",
+            "size": "27",
+            "resolution": "1080p",
+            "curvature": "curved",
+            "panel_type": "va",
+            "brand": "samsung"
+          },
+          "confidence_thresholds": {
+            "minimum_overall": 0.80,
+            "technical_info_source": 0.90,
+            "features_source": 0.80,
+            "title_source": 0.60
+          }
+        },
+        {
+          "asin": "B07DL6L8QX", 
+          "title": "LG UltraGear 24GN600-B 24 Inch Full HD (1920 x 1080) IPS Gaming Monitor with 144Hz, 1ms Motion Blur Reduction, FreeSync Premium, 99% sRGB, HDR 10, Tilt/Height/Pivot Adjustable Stand, HDMI x2, DP",
+          "brand": "LG",
+          "verified_specs": {
+            "refresh_rate": "144",
+            "size": "24", 
+            "resolution": "1080p",
+            "panel_type": "ips",
+            "brand": "lg"
+          },
+          "confidence_thresholds": {
+            "minimum_overall": 0.80,
+            "technical_info_source": 0.90,
+            "features_source": 0.80,
+            "title_source": 0.60
+          }
+        },
+        {
+          "asin": "B09X67JBQV",
+          "title": "ASUS TUF Gaming VG27AQ 27\" 2K HDR Gaming Monitor (2560 x 1440) IPS 165Hz (Supports 144Hz) 1ms G-SYNC Compatible Variable Refresh Rate Eye Care DisplayPort HDMI",
+          "brand": "ASUS",
+          "verified_specs": {
+            "refresh_rate": "165",
+            "size": "27",
+            "resolution": "1440p", 
+            "panel_type": "ips",
+            "brand": "asus"
+          },
+          "confidence_thresholds": {
+            "minimum_overall": 0.80,
+            "technical_info_source": 0.90,
+            "features_source": 0.80,
+            "title_source": 0.60
+          }
+        },
+        {
+          "asin": "B09G9FPHY6",
+          "title": "Dell S3422DWG 34-inch Curved Gaming Monitor, WQHD (3440 x 1440) Display, 144Hz Refresh Rate, 1ms Gray-to-Gray Response Time (Extreme), AMD FreeSync Premium Pro, Height Adjustable Stand",
+          "brand": "Dell", 
+          "verified_specs": {
+            "refresh_rate": "144",
+            "size": "34",
+            "resolution": "1440p",
+            "curvature": "curved",
+            "brand": "dell"
+          },
+          "confidence_thresholds": {
+            "minimum_overall": 0.80,
+            "technical_info_source": 0.90,
+            "features_source": 0.80,
+            "title_source": 0.60
+          }
+        },
+        {
+          "asin": "B09WPJNHKP",
+          "title": "MSI Optix G24C4 24 Inch Curved Gaming Monitor, FHD (1920 x 1080), 144Hz Refresh Rate, 1ms Response Time, 1500R Curvature, AMD FreeSync, HDMI, DisplayPort",
+          "brand": "MSI",
+          "verified_specs": {
+            "refresh_rate": "144", 
+            "size": "24",
+            "resolution": "1080p",
+            "curvature": "curved",
+            "brand": "msi"
+          },
+          "confidence_thresholds": {
+            "minimum_overall": 0.80,
+            "technical_info_source": 0.90,
+            "features_source": 0.80,
+            "title_source": 0.60
+          }
+        },
+        {
+          "asin": "B0C4JTNP5S",
+          "title": "AOC 24G2 24\" Frameless Gaming IPS Monitor, FHD 1080P, 1ms 144Hz, Freesync, HDMI/DP/VGA, Height Adjustable, 3-Year Zero Dead Pixel Guarantee",
+          "brand": "AOC",
+          "verified_specs": {
+            "refresh_rate": "144",
+            "size": "24",
+            "resolution": "1080p", 
+            "panel_type": "ips",
+            "brand": "aoc"
+          },
+          "confidence_thresholds": {
+            "minimum_overall": 0.80,
+            "technical_info_source": 0.90,
+            "features_source": 0.80,
+            "title_source": 0.60
+          }
+        }
+      ]
+    }
+  },
+  "test_scenarios": {
+    "field_precedence": {
+      "description": "Test data to verify field precedence logic",
+      "scenarios": [
+        {
+          "name": "technical_info_wins",
+          "description": "Technical info should override features and title",
+          "test_data": {
+            "asin": "TEST_PRECEDENCE_1",
+            "title": "Monitor 32 inch 60Hz",
+            "features": ["27-inch display", "120Hz refresh rate"],
+            "technical_details": {
+              "screen_size": "24 inches", 
+              "refresh_rate": "144 Hz"
+            }
+          },
+          "expected": {
+            "size": {"value": "24", "source": "technical_info"},
+            "refresh_rate": {"value": "144", "source": "technical_info"}
+          }
+        },
+        {
+          "name": "features_win_over_title", 
+          "description": "Features should override title when technical_info missing",
+          "test_data": {
+            "asin": "TEST_PRECEDENCE_2",
+            "title": "Samsung 32 inch 60Hz Monitor",
+            "features": ["27-inch curved display", "144Hz refresh rate"],
+            "technical_details": {}
+          },
+          "expected": {
+            "size": {"value": "27", "source": "features"},
+            "refresh_rate": {"value": "144", "source": "features"},
+            "curvature": {"value": "curved", "source": "features"}
+          }
+        }
+      ]
+    },
+    "normalization": {
+      "description": "Test data for feature value normalization",
+      "scenarios": [
+        {
+          "name": "refresh_rate_variations",
+          "variations": ["144Hz", "144 fps", "144 hertz", "144FPS", "144 Hz"],
+          "expected_normalized": "144"
+        },
+        {
+          "name": "size_variations",
+          "variations": ["27 inch", "27\"", "27 in", "27-inch", "68.6 cm"],
+          "expected_normalized": "27"
+        },
+        {
+          "name": "resolution_variations", 
+          "variations": ["4K", "UHD", "2160p", "3840x2160"],
+          "expected_normalized": "4k"
+        },
+        {
+          "name": "resolution_qhd_variations",
+          "variations": ["QHD", "WQHD", "1440p", "2560x1440"],
+          "expected_normalized": "1440p"
+        }
+      ]
+    },
+    "performance_benchmarks": {
+      "description": "Performance requirements for Phase 2",
+      "requirements": {
+        "individual_analysis_max_ms": 200,
+        "batch_processing_max_ms_per_item": 200,
+        "concurrent_processing_items": 20,
+        "memory_overhead_max_mb": 50
+      }
+    }
+  },
+  "validation_rules": {
+    "accuracy_thresholds": {
+      "overall_minimum": 0.90,
+      "per_category_minimum": 0.85,
+      "individual_product_minimum": 0.80
+    },
+    "confidence_requirements": {
+      "technical_info_source_minimum": 0.90,
+      "features_source_minimum": 0.80,
+      "title_source_minimum": 0.60,
+      "overall_confidence_minimum": 0.70
+    },
+    "performance_requirements": {
+      "max_analysis_time_ms": 200,
+      "max_memory_usage_mb": 100,
+      "success_rate_minimum": 0.95
+    }
+  }
+}

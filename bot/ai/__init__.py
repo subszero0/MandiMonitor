@@ -21,12 +21,14 @@ Architecture Decision (POC Results):
 
 from .feature_extractor import FeatureExtractor
 from .matching_engine import FeatureMatchingEngine
+from .product_analyzer import ProductFeatureAnalyzer
 from .vocabularies import get_category_vocabulary
 
 __version__ = "1.0.0"
 __all__ = [
     "FeatureExtractor",
-    "FeatureMatchingEngine", 
+    "FeatureMatchingEngine",
+    "ProductFeatureAnalyzer", 
     "get_category_vocabulary",
 ]
 
