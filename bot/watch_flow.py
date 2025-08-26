@@ -990,15 +990,76 @@ async def _finalize_watch(
                                 )
                                 return
                         
-                        # Use the first result as the best match
-                        best_match = search_results[0]
+                        # Use intelligent product selection (Phase 4: AI-powered selection)
+                        from .product_selection_models import smart_product_selection
+                        from .ai_performance_monitor import log_ai_selection
+                        
+                        best_match = await smart_product_selection(
+                            products=search_results,
+                            user_query=watch_data["keywords"],
+                            user_preferences=watch_data
+                        )
+                        
+                        if not best_match:
+                            # Fallback to first result if all models fail
+                            best_match = search_results[0]
+                        
                         asin = best_match.get("asin")
+                        
+                        # Log AI selection performance for monitoring
+                        selection_metadata = {}
+                        model_used = "UltimateFallback"
+                        
+                        if "_ai_metadata" in best_match:
+                            ai_data = best_match["_ai_metadata"]
+                            model_used = "FeatureMatchModel"
+                            selection_metadata.update({
+                                "model_used": model_used,
+                                "ai_score": ai_data.get("ai_score", 0),
+                                "ai_confidence": ai_data.get("ai_confidence", 0),
+                                "matched_features": ai_data.get("matched_features", []),
+                                "processing_time_ms": ai_data.get("processing_time_ms", 0)
+                            })
+                            log.info("AI_SELECTION: model=FeatureMatch, score=%.3f, confidence=%.3f, features=%s, latency=%.1fms",
+                                    ai_data.get("ai_score", 0), ai_data.get("ai_confidence", 0), 
+                                    ai_data.get("matched_features", []), ai_data.get("processing_time_ms", 0))
+                        elif "_popularity_metadata" in best_match:
+                            pop_data = best_match["_popularity_metadata"]
+                            model_used = "PopularityModel"
+                            selection_metadata.update({
+                                "model_used": model_used,
+                                "popularity_score": pop_data.get("popularity_score", 0),
+                                "processing_time_ms": pop_data.get("processing_time_ms", 0)
+                            })
+                            log.info("AI_SELECTION: model=Popularity, score=%.3f", pop_data.get("popularity_score", 0))
+                        elif "_random_metadata" in best_match:
+                            model_used = "RandomSelectionModel"
+                            selection_metadata.update({
+                                "model_used": model_used,
+                                "processing_time_ms": best_match["_random_metadata"].get("processing_time_ms", 0)
+                            })
+                            log.info("AI_SELECTION: model=Random")
+                        else:
+                            selection_metadata["model_used"] = model_used
+                            log.info("AI_SELECTION: model=UltimateFallback")
+                        
+                        # Log to performance monitor
+                        log_ai_selection(
+                            model_name=model_used,
+                            user_query=watch_data["keywords"],
+                            product_count=len(search_results),
+                            selection_metadata=selection_metadata,
+                            success=True
+                        )
+                        
                         product_price = best_match.get("price")
                         if product_price:
                             price_rs = product_price / 100 if product_price > 10000 else product_price
-                            log.info("Found ASIN %s for search: %s (Price: ₹%s)", asin, watch_data["keywords"], int(price_rs))
+                            log.info("Selected ASIN %s for search: %s (Price: ₹%s, Model: %s)", 
+                                    asin, watch_data["keywords"], int(price_rs), selection_metadata.get("model_used", "Unknown"))
                         else:
-                            log.info("Found ASIN %s for search: %s (Price: Unknown)", asin, watch_data["keywords"])
+                            log.info("Selected ASIN %s for search: %s (Price: Unknown, Model: %s)", 
+                                    asin, watch_data["keywords"], selection_metadata.get("model_used", "Unknown"))
                 except Exception as search_error:
                     log.warning("Product search failed for '%s': %s", watch_data["keywords"], search_error)
                     # Continue without ASIN - watch will still be created for future searches
