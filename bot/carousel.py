@@ -1,6 +1,7 @@
 """Telegram carousel message builder for product cards."""
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from typing import Dict, List, Any, Optional
 
 
 def build_carousel(products: list) -> list:

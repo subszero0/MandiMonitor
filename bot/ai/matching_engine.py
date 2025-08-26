@@ -599,3 +599,54 @@ class FeatureMatchingEngine:
             }
         
         return scored_products
+
+    async def select_products_for_carousel(
+        self,
+        user_features: Dict[str, Any],
+        products: List[Dict[str, Any]],
+        category: str = "gaming_monitor",
+        max_cards: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Select products for multi-card carousel with comparison features.
+        
+        This is the main entry point for Phase 6 multi-card selection.
+        
+        Args:
+        ----
+            user_features: User requirements from query
+            products: List of product data dicts
+            category: Product category
+            max_cards: Maximum number of cards to show
+            
+        Returns:
+        -------
+            Dict with products, comparison table, and presentation mode
+        """
+        # Score all products first
+        scored_products = await self.score_products(user_features, products, category)
+        
+        if not scored_products:
+            return {
+                'products': [],
+                'comparison_table': {"error": "No products available"},
+                'selection_reason': "No products found to score",
+                'presentation_mode': 'none',
+                'ai_metadata': {
+                    'selection_type': 'empty',
+                    'card_count': 0,
+                    'processing_time_ms': 0
+                }
+            }
+        
+        # Use MultiCardSelector for intelligent selection
+        from .multi_card_selector import MultiCardSelector
+        selector = MultiCardSelector()
+        
+        result = await selector.select_products_for_comparison(
+            scored_products=scored_products,
+            user_features=user_features,
+            max_cards=max_cards
+        )
+        
+        return result
