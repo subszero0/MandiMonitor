@@ -1,0 +1,130 @@
+{
+  "version": "1.0.0",
+  "category": "gaming_monitor",
+  "last_updated": "2025-08-26",
+  "description": "Feature extraction model for gaming monitors with India-specific considerations",
+  "features": {
+    "refresh_rate": {
+      "type": "numeric",
+      "unit": "Hz",
+      "range": [30, 500],
+      "common_values": [60, 75, 144, 165, 240, 360],
+      "patterns": [
+        "\\b(\\d+)\\s*hz\\b",
+        "\\b(\\d+)\\s*fps\\b",
+        "\\b(\\d+)\\s*hertz\\b"
+      ],
+      "importance": 3.0,
+      "tolerance": 0.1
+    },
+    "size": {
+      "type": "numeric", 
+      "unit": "inches",
+      "range": [10, 65],
+      "common_values": [21.5, 24, 27, 32, 34, 43, 49],
+      "patterns": [
+        "\\b(\\d+(?:\\.\\d+)?)\\s*inch\\b",
+        "\\b(\\d+(?:\\.\\d+)?)\\s*\\\"\\b",
+        "\\b(\\d+(?:\\.\\d+)?)\\s*cm\\b"
+      ],
+      "importance": 2.0,
+      "tolerance": 0.05,
+      "conversions": {
+        "cm_to_inches": 2.54
+      }
+    },
+    "resolution": {
+      "type": "categorical",
+      "values": ["720p", "1080p", "1440p", "4k", "8k"],
+      "patterns": [
+        "\\b(4k|uhd|2160p)\\b",
+        "\\b(qhd|wqhd|1440p)\\b",
+        "\\b(fhd|1080p|full\\s*hd)\\b",
+        "\\b(720p|hd)\\b"
+      ],
+      "synonyms": {
+        "4k": ["4k", "uhd", "2160p"],
+        "1440p": ["qhd", "wqhd", "1440p"],
+        "1080p": ["fhd", "1080p", "full hd"],
+        "720p": ["hd", "720p"]
+      },
+      "importance": 2.5
+    },
+    "curvature": {
+      "type": "categorical",
+      "values": ["curved", "flat"],
+      "patterns": [
+        "\\b(curved)\\b",
+        "\\b(flat)\\b"
+      ],
+      "importance": 1.5
+    },
+    "panel_type": {
+      "type": "categorical",
+      "values": ["IPS", "VA", "TN", "OLED", "QLED"],
+      "patterns": [
+        "\\b(ips)\\b",
+        "\\b(va)\\b",
+        "\\b(tn)\\b", 
+        "\\b(oled)\\b",
+        "\\b(qled)\\b"
+      ],
+      "importance": 1.0
+    },
+    "brand": {
+      "type": "categorical",
+      "values": [
+        "samsung", "lg", "dell", "asus", "acer", "msi", 
+        "benq", "viewsonic", "aoc", "hp", "lenovo"
+      ],
+      "patterns": [
+        "\\b(samsung)\\b",
+        "\\b(lg)\\b", 
+        "\\b(dell)\\b",
+        "\\b(asus)\\b",
+        "\\b(acer)\\b",
+        "\\b(msi)\\b",
+        "\\b(benq)\\b",
+        "\\b(viewsonic)\\b",
+        "\\b(aoc)\\b",
+        "\\b(hp)\\b",
+        "\\b(lenovo)\\b"
+      ],
+      "importance": 0.8
+    }
+  },
+  "context": {
+    "usage_patterns": [
+      "\\b(gaming)\\b",
+      "\\b(professional)\\b", 
+      "\\b(coding)\\b",
+      "\\b(design)\\b",
+      "\\b(office)\\b"
+    ],
+    "marketing_filters": [
+      "cinematic", "eye", "care", "stunning", "amazing", "best",
+      "ultimate", "professional", "premium", "advanced"
+    ]
+  },
+  "localization": {
+    "hinglish_support": true,
+    "currency": "INR",
+    "units": {
+      "size": ["inch", "cm"],
+      "refresh_rate": ["hz", "fps", "hertz"]
+    },
+    "common_hinglish_patterns": [
+      "ka", "wala", "chahiye", "mein"
+    ]
+  },
+  "validation": {
+    "test_queries": [
+      "gaming monitor 144hz curved 27 inch",
+      "Samsung 27 inch 4k monitor",
+      "curved gaming display 165 fps",
+      "monitor 32\" 1440p IPS panel"
+    ],
+    "expected_accuracy": 0.85,
+    "performance_target_ms": 100
+  }
+}
