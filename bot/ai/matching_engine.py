@@ -27,18 +27,39 @@ class FeatureMatchingEngine:
         """Initialize the matching engine."""
         self.scoring_cache = {}  # Cache for performance
         
-        # Tolerance windows for near-matches
+        # Tolerance windows for near-matches (percentage tolerance)
         self.tolerance_windows = {
-            "refresh_rate": 0.1,   # ±10% tolerance for refresh rate
-            "size": 0.05,          # ±5% tolerance for screen size
-            "price": 0.15,         # ±15% tolerance for price matching
+            "refresh_rate": 0.15,   # ±15% tolerance for refresh rate (144Hz accepts 120-165Hz)
+            "size": 0.10,           # ±10% tolerance for screen size (27" accepts 24-30")
+            "price": 0.20,          # ±20% tolerance for price matching
         }
         
         # Penalty multipliers for mismatches
         self.mismatch_penalties = {
-            "refresh_rate": 0.8,   # 20% penalty for refresh rate mismatch
-            "size": 0.9,           # 10% penalty for size mismatch
-            "resolution": 0.7,     # 30% penalty for resolution mismatch
+            "refresh_rate": 0.7,    # 30% penalty for refresh rate mismatch
+            "size": 0.8,            # 20% penalty for size mismatch  
+            "resolution": 0.6,      # 40% penalty for resolution mismatch
+            "curvature": 0.9,       # 10% penalty for curvature mismatch
+            "panel_type": 0.85,     # 15% penalty for panel type mismatch
+        }
+        
+        # Special tolerance cases for categorical features
+        self.categorical_tolerance = {
+            "refresh_rate": {
+                # Gaming-friendly refresh rate tiers
+                60: [75, 120],      # 60Hz can accept 75Hz or 120Hz as upgrades
+                75: [60, 120, 144], # 75Hz accepts 60Hz, 120Hz, 144Hz
+                120: [75, 144],     # 120Hz accepts 75Hz or 144Hz
+                144: [120, 165],    # 144Hz accepts 120Hz or 165Hz  
+                165: [144, 240],    # 165Hz accepts 144Hz or 240Hz
+                240: [165, 360],    # 240Hz accepts 165Hz or 360Hz
+            },
+            "resolution": {
+                # Resolution upgrade paths
+                "1080p": ["1440p"],  # 1080p can accept 1440p as upgrade
+                "1440p": ["4k"],     # 1440p can accept 4K as upgrade
+                "4k": [],            # 4K is top tier
+            }
         }
 
     def score_product(
@@ -155,7 +176,7 @@ class FeatureMatchingEngine:
         
         return result
 
-    def score_products(
+    async def score_products(
         self,
         user_features: Dict[str, Any],
         products: List[Dict[str, Any]],
@@ -180,21 +201,24 @@ class FeatureMatchingEngine:
         scored_products = []
         
         for product in products:
-            # Extract product features (this would be implemented in product analyzer)
-            product_features = self._extract_product_features(product)
+            # Extract product features using Phase 2 analyzer
+            product_features = await self._extract_product_features(product)
             
             # Score the product
             score_data = self.score_product(user_features, product_features, category)
             
             scored_products.append((product, score_data))
         
-        # Sort by score (highest first), with tie-breaking
+        # Sort by score (highest first), with sophisticated tie-breaking
         scored_products.sort(
             key=lambda x: (
-                x[1]["score"],                    # Primary: score
-                x[1]["confidence"],               # Secondary: confidence  
-                len(x[1]["matched_features"]),    # Tertiary: feature count
-                x[0].get("asin", "")             # Final: ASIN for determinism
+                x[1]["score"],                              # Primary: AI feature match score
+                x[1]["confidence"],                         # Secondary: confidence in matching
+                len(x[1]["matched_features"]),              # Tertiary: number of matched features
+                self._get_popularity_score(x[0]),           # Quaternary: product popularity
+                self._get_price_tier_score(x[0]),           # Quinary: price positioning
+                -len(x[1]["missing_features"]),             # Senary: fewer missing features
+                x[0].get("asin", "")                       # Final: ASIN for determinism
             ),
             reverse=True
         )
@@ -214,7 +238,7 @@ class FeatureMatchingEngine:
         product_value: Any, 
         feature_name: str
     ) -> float:
-        """Calculate similarity score for a specific feature."""
+        """Calculate similarity score for a specific feature with advanced tolerance logic."""
         if not user_value or not product_value:
             return 0.0
         
@@ -225,7 +249,31 @@ class FeatureMatchingEngine:
         if user_str == product_str:
             return 1.0
         
-        # Numeric features with tolerance
+        # Special handling for categorical tolerance (like refresh rate tiers)
+        if feature_name in self.categorical_tolerance:
+            try:
+                if feature_name == "refresh_rate":
+                    user_rate = int(user_str)
+                    product_rate = int(product_str)
+                    
+                    # Check if within tolerance tier
+                    acceptable_rates = self.categorical_tolerance[feature_name].get(user_rate, [])
+                    if product_rate in acceptable_rates:
+                        # Calculate upgrade bonus (higher refresh rate is better)
+                        if product_rate > user_rate:
+                            return 0.95  # Slight bonus for upgrade
+                        else:
+                            return 0.85  # Acceptable downgrade
+                            
+                elif feature_name == "resolution":
+                    acceptable_resolutions = self.categorical_tolerance[feature_name].get(user_str, [])
+                    if product_str in acceptable_resolutions:
+                        return 0.90  # Resolution upgrade is good
+                        
+            except (ValueError, KeyError):
+                pass  # Fall through to numeric tolerance
+        
+        # Numeric features with percentage tolerance
         if feature_name in self.tolerance_windows:
             try:
                 user_num = float(user_str)
@@ -235,19 +283,22 @@ class FeatureMatchingEngine:
                 diff_ratio = abs(user_num - product_num) / user_num
                 
                 if diff_ratio <= tolerance:
-                    # Within tolerance - high score with slight penalty
-                    return 1.0 - (diff_ratio / tolerance) * 0.2
+                    # Within tolerance - high score with graduated penalty
+                    score = 1.0 - (diff_ratio / tolerance) * 0.15  # Max 15% penalty within tolerance
+                    return max(0.85, score)  # Minimum 85% score for tolerance matches
                 else:
-                    # Outside tolerance - apply penalty
+                    # Outside tolerance - apply mismatch penalty
                     penalty = self.mismatch_penalties.get(feature_name, 0.5)
-                    return penalty * max(0, 1.0 - diff_ratio)
+                    # Gradual penalty based on how far outside tolerance
+                    distance_penalty = min(1.0, diff_ratio / tolerance - 1.0)
+                    return penalty * (1.0 - distance_penalty * 0.5)
                     
             except ValueError:
                 pass  # Fall through to string matching
         
         # String similarity for categorical features  
         if user_str in product_str or product_str in user_str:
-            return 0.8  # Partial match
+            return 0.75  # Good partial match
         
         # Brand/keyword matching
         user_words = set(user_str.split())
@@ -258,7 +309,9 @@ class FeatureMatchingEngine:
             overlap_ratio = len(common_words) / max(len(user_words), len(product_words))
             return overlap_ratio * 0.6  # Keyword overlap
         
-        return 0.0  # No match
+        # Apply mismatch penalty for complete mismatch
+        penalty = self.mismatch_penalties.get(feature_name, 0.3)
+        return penalty * 0.1  # Very low score for complete mismatch
 
     def _generate_rationale(
         self,
@@ -267,10 +320,10 @@ class FeatureMatchingEngine:
         missing: List[str],
         feature_scores: Dict[str, Dict[str, Any]]
     ) -> str:
-        """Generate human-readable explanation for the score."""
+        """Generate human-readable explanation for the score with detailed context."""
         explanations = []
         
-        # Add matched features
+        # Add matched features with quality indicators
         if matched:
             matched_parts = []
             for feature in matched:
@@ -278,36 +331,82 @@ class FeatureMatchingEngine:
                     score_data = feature_scores[feature]
                     user_val = score_data["user_value"]
                     product_val = score_data["product_value"]
+                    score = score_data["score"]
                     
+                    # Format feature with quality indicator
                     if feature == "refresh_rate":
-                        matched_parts.append(f"refresh_rate={product_val}Hz")
+                        if score >= 0.95:
+                            if int(product_val) > int(user_val):
+                                matched_parts.append(f"refresh_rate={product_val}Hz (upgrade!)")
+                            else:
+                                matched_parts.append(f"refresh_rate={product_val}Hz (exact)")
+                        elif score >= 0.85:
+                            matched_parts.append(f"refresh_rate={product_val}Hz (close)")
+                        else:
+                            matched_parts.append(f"refresh_rate={product_val}Hz")
                     elif feature == "size":
-                        matched_parts.append(f"size={product_val}″")
+                        if score >= 0.95:
+                            matched_parts.append(f"size={product_val}″ (exact)")
+                        elif score >= 0.85:
+                            matched_parts.append(f"size={product_val}″ (close)")
+                        else:
+                            matched_parts.append(f"size={product_val}″")
                     elif feature == "resolution":
-                        matched_parts.append(f"resolution={product_val}")
+                        if score >= 0.90:
+                            if product_val in ["4k", "1440p"] and user_val in ["1080p", "1440p"]:
+                                matched_parts.append(f"resolution={product_val} (upgrade!)")
+                            else:
+                                matched_parts.append(f"resolution={product_val}")
+                        else:
+                            matched_parts.append(f"resolution={product_val}")
+                    elif feature == "curvature":
+                        matched_parts.append(f"curvature={product_val}")
+                    elif feature == "panel_type":
+                        matched_parts.append(f"panel={product_val.upper()}")
+                    elif feature == "brand":
+                        matched_parts.append(f"brand={product_val.title()}")
                     else:
                         matched_parts.append(f"{feature}={product_val}")
             
             if matched_parts:
-                explanations.append(f"Matched: {', '.join(matched_parts)}")
+                explanations.append(f"✓ {', '.join(matched_parts)}")
         
-        # Add mismatches if any
+        # Add tolerance matches (scored 0.8-0.95)
+        tolerance_matches = []
+        for feature, score_data in feature_scores.items():
+            score = score_data["score"]
+            if 0.8 <= score < 0.95 and feature not in matched:
+                user_val = score_data["user_value"]
+                product_val = score_data["product_value"]
+                if feature == "refresh_rate":
+                    tolerance_matches.append(f"refresh_rate={product_val}Hz (vs {user_val}Hz)")
+                elif feature == "size":
+                    tolerance_matches.append(f"size={product_val}″ (vs {user_val}″)")
+                else:
+                    tolerance_matches.append(f"{feature}={product_val}")
+        
+        if tolerance_matches:
+            explanations.append(f"≈ {', '.join(tolerance_matches)}")
+        
+        # Add significant mismatches only (not minor ones)
         if mismatched:
-            mismatch_parts = []
+            significant_mismatches = []
             for feature in mismatched:
                 if feature in feature_scores:
                     score_data = feature_scores[feature]
-                    user_val = score_data["user_value"]  
-                    product_val = score_data["product_value"]
-                    mismatch_parts.append(f"{feature}: wanted {user_val}, found {product_val}")
+                    score = score_data["score"]
+                    if score < 0.5:  # Only show significant mismatches
+                        user_val = score_data["user_value"]  
+                        product_val = score_data["product_value"]
+                        significant_mismatches.append(f"{feature}: {user_val}→{product_val}")
             
-            if mismatch_parts:
-                explanations.append(f"Mismatched: {', '.join(mismatch_parts)}")
+            if significant_mismatches:
+                explanations.append(f"✗ {', '.join(significant_mismatches)}")
         
-        # Add missing features if critical
+        # Add missing critical features only
         critical_missing = [f for f in missing if f in ["refresh_rate", "size", "resolution"]]
         if critical_missing:
-            explanations.append(f"Missing: {', '.join(critical_missing)}")
+            explanations.append(f"? Missing: {', '.join(critical_missing)}")
         
         return " • ".join(explanations) if explanations else "No clear feature alignment"
 
@@ -337,56 +436,25 @@ class FeatureMatchingEngine:
         confidence = match_score - mismatch_penalty - missing_penalty
         return max(0.0, min(1.0, confidence))
 
-    def _extract_product_features(self, product: Dict[str, Any]) -> Dict[str, Any]:
+    async def _extract_product_features(self, product: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extract features from product data.
+        Extract features from product data using ProductFeatureAnalyzer.
         
-        This is a simplified version - full implementation would be in
-        ProductFeatureAnalyzer (Phase 2).
+        This integrates with Phase 2 implementation for proper feature extraction.
         """
+        from .product_analyzer import ProductFeatureAnalyzer
+        
+        analyzer = ProductFeatureAnalyzer()
+        feature_result = await analyzer.analyze_product_features(product, "gaming_monitor")
+        
+        # Extract just the values from the feature analysis result
         features = {}
-        
-        title = product.get("title", "").lower()
-        
-        # Basic feature extraction from title (temporary implementation)
-        if "144hz" in title or "144 hz" in title:
-            features["refresh_rate"] = "144"
-        elif "165hz" in title or "165 hz" in title:
-            features["refresh_rate"] = "165"
-        elif "240hz" in title or "240 hz" in title:
-            features["refresh_rate"] = "240"
-        
-        if "27 inch" in title or "27\"" in title:
-            features["size"] = "27"
-        elif "32 inch" in title or "32\"" in title:
-            features["size"] = "32"
-        elif "24 inch" in title or "24\"" in title:
-            features["size"] = "24"
-        
-        if "4k" in title or "uhd" in title:
-            features["resolution"] = "4k"
-        elif "1440p" in title or "qhd" in title:
-            features["resolution"] = "1440p"
-        elif "1080p" in title or "fhd" in title:
-            features["resolution"] = "1080p"
-        
-        if "curved" in title:
-            features["curvature"] = "curved"
-        elif "flat" in title:
-            features["curvature"] = "flat"
-        
-        if "ips" in title:
-            features["panel_type"] = "ips"
-        elif "va" in title:
-            features["panel_type"] = "va"
-        elif "oled" in title:
-            features["panel_type"] = "oled"
-        
-        # Brand detection
-        for brand in ["samsung", "lg", "dell", "asus", "acer", "msi", "benq"]:
-            if brand in title:
-                features["brand"] = brand
-                break
+        for feature_name, feature_data in feature_result.items():
+            if isinstance(feature_data, dict) and "value" in feature_data:
+                features[feature_name] = feature_data["value"]
+            elif feature_name not in ["overall_confidence", "extraction_metadata"]:
+                # Handle direct value assignment
+                features[feature_name] = feature_data
         
         return features
 
@@ -447,3 +515,87 @@ class FeatureMatchingEngine:
         lines.append(f"Rationale: {score_result['rationale']}")
         
         return "\n".join(lines)
+    
+    def _get_popularity_score(self, product: Dict[str, Any]) -> float:
+        """
+        Calculate popularity score for tie-breaking.
+        
+        Uses rating count, average rating, and sales rank if available.
+        """
+        popularity = 0.0
+        
+        # Rating count (more reviews = more popular)
+        rating_count = product.get("rating_count", 0)
+        if isinstance(rating_count, (int, float)) and rating_count > 0:
+            # Logarithmic scaling for rating count (diminishing returns)
+            import math
+            popularity += min(0.4, math.log10(rating_count + 1) / 4)
+        
+        # Average rating (higher rating = better)
+        avg_rating = product.get("average_rating", 0)
+        if isinstance(avg_rating, (int, float)) and avg_rating > 0:
+            # Normalize to 0-0.3 scale (4.5+ stars get full score)
+            popularity += min(0.3, (avg_rating - 3.0) / 2.0 * 0.3)
+        
+        # Sales rank (lower rank = more popular)
+        sales_rank = product.get("sales_rank")
+        if isinstance(sales_rank, (int, float)) and sales_rank > 0:
+            # Inverse logarithmic scaling (rank 1 = 0.3, rank 10000 = ~0.1)
+            import math
+            popularity += max(0.0, 0.3 - math.log10(sales_rank) / 4 * 0.2)
+        
+        return min(1.0, popularity)
+    
+    def _get_price_tier_score(self, product: Dict[str, Any]) -> float:
+        """
+        Calculate price tier score for tie-breaking.
+        
+        Favors products in the value/premium range over ultra-budget or ultra-premium.
+        """
+        price = product.get("price")
+        if not price:
+            return 0.5  # Neutral score for missing price
+        
+        # Extract numeric price (handle currency symbols)
+        import re
+        price_str = str(price)
+        price_match = re.search(r'[\d,]+\.?\d*', price_str.replace(',', ''))
+        if not price_match:
+            return 0.5
+        
+        try:
+            price_value = float(price_match.group())
+        except ValueError:
+            return 0.5
+        
+        # Gaming monitor price tiers (adjust for other categories)
+        if price_value < 5000:      # Budget (<₹5k)
+            return 0.3
+        elif price_value < 15000:   # Value (₹5k-15k)
+            return 0.8
+        elif price_value < 35000:   # Premium (₹15k-35k)
+            return 1.0
+        elif price_value < 60000:   # High-end (₹35k-60k)
+            return 0.7
+        else:                       # Ultra-premium (>₹60k)
+            return 0.4
+    
+    def add_tie_breaking_context(
+        self, 
+        scored_products: List[Tuple[Dict[str, Any], Dict[str, Any]]]
+    ) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+        """
+        Add tie-breaking context to scored products for debugging.
+        
+        Useful for understanding why products were ranked in a specific order.
+        """
+        for product, score_data in scored_products:
+            score_data["tie_breaking"] = {
+                "popularity_score": self._get_popularity_score(product),
+                "price_tier_score": self._get_price_tier_score(product),
+                "rating_count": product.get("rating_count", 0),
+                "avg_rating": product.get("average_rating", 0),
+                "price": product.get("price", "N/A")
+            }
+        
+        return scored_products
