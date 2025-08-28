@@ -40,14 +40,251 @@ def _check_auth() -> None:
 
 @app.route("/health")
 def health():
-    """Health check endpoint for monitoring and load balancers.
+    """
+    Basic health check endpoint for monitoring and load balancers.
 
     Returns
     -------
         JSON response with status indicator
-
     """
     return jsonify(status="ok")
+
+
+@app.route("/health/ai")  
+def ai_health():
+    """
+    Phase R5.2: Enhanced health check with AI performance monitoring.
+    
+    Returns
+    -------
+        JSON response with AI system health metrics
+    """
+    try:
+        from .ai_performance_monitor import get_ai_monitor
+        
+        # Get AI performance statistics
+        monitor = get_ai_monitor()
+        stats = monitor.get_performance_stats()
+        
+        # Calculate health indicators
+        health_status = "ok"
+        warnings = []
+        
+        # Check model availability
+        try:
+            from .product_selection_models import get_selection_model
+            test_model = get_selection_model("test query", 5)
+            model_available = True
+        except Exception as e:
+            model_available = False
+            health_status = "degraded"
+            warnings.append(f"Model initialization failed: {str(e)[:100]}")
+        
+        # Check recent performance
+        recent_failures = stats.get("recent_failures", 0)
+        if recent_failures > 5:  # More than 5 failures in recent period
+            health_status = "degraded" 
+            warnings.append(f"High failure rate: {recent_failures} recent failures")
+        
+        # Check latency
+        avg_latency = stats.get("average_latency_ms", 0)
+        if avg_latency > 1000:  # More than 1 second average
+            health_status = "degraded"
+            warnings.append(f"High latency: {avg_latency:.1f}ms average")
+        
+        return jsonify({
+            "status": health_status,
+            "ai_system": {
+                "model_available": model_available,
+                "recent_selections": stats.get("total_selections", 0),
+                "success_rate": stats.get("success_rate", 0),
+                "average_latency_ms": avg_latency,
+                "recent_failures": recent_failures,
+                "model_distribution": stats.get("model_usage", {}),
+            },
+            "warnings": warnings,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": f"Health check failed: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }), 500
+
+
+@app.route("/admin/rollout")
+def rollout_dashboard():
+    """
+    Phase R7: Rollout management dashboard for production deployment.
+    """
+    _check_auth()
+    
+    try:
+        from .feature_rollout import get_rollout_manager
+        
+        manager = get_rollout_manager()
+        rollout_status = manager.get_rollout_status()
+        
+        # Generate HTML dashboard
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>AI Feature Rollout Dashboard</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .feature { 
+                    border: 1px solid #ddd; 
+                    margin: 10px 0; 
+                    padding: 15px; 
+                    border-radius: 5px; 
+                }
+                .enabled { background-color: #d4edda; }
+                .disabled { background-color: #f8d7da; }
+                .percentage { font-weight: bold; font-size: 1.2em; }
+                .controls { margin: 10px 0; }
+                .controls input { margin: 5px; padding: 5px; }
+                .emergency { background-color: #dc3545; color: white; }
+            </style>
+        </head>
+        <body>
+            <h1>🚀 AI Feature Rollout Dashboard</h1>
+            <p><strong>Last Updated:</strong> {timestamp}</p>
+            <p><strong>Rollback History:</strong> {rollback_count} events</p>
+            
+            <h2>🎯 Feature Status</h2>
+        """.format(
+            timestamp=datetime.fromtimestamp(rollout_status["timestamp"]).strftime("%Y-%m-%d %H:%M:%S"),
+            rollback_count=rollout_status["rollback_history"]
+        )
+        
+        # Add feature cards
+        for feature_name, feature_info in rollout_status["features"].items():
+            status_class = "enabled" if feature_info["enabled"] else "disabled"
+            rollout_pct = feature_info["rollout_percentage"]
+            
+            html += f"""
+            <div class="feature {status_class}">
+                <h3>{feature_name.replace('_', ' ').title()}</h3>
+                <div class="percentage">Rollout: {rollout_pct}%</div>
+                <p><strong>Status:</strong> {"✅ Enabled" if feature_info["enabled"] else "❌ Disabled"}</p>
+                <p><strong>Conditions:</strong> {"Yes" if feature_info["has_conditions"] else "None"}</p>
+                <p><strong>Whitelist:</strong> {feature_info["whitelist_size"]} users</p>
+                <p><strong>Blacklist:</strong> {feature_info["blacklist_size"]} users</p>
+                
+                <div class="controls">
+                    <strong>Actions:</strong>
+                    <button onclick="updateRollout('{feature_name}', 0)" class="emergency">Emergency Disable</button>
+                    <button onclick="updateRollout('{feature_name}', 50)">50% Rollout</button>
+                    <button onclick="updateRollout('{feature_name}', 75)">75% Rollout</button>
+                    <button onclick="updateRollout('{feature_name}', 100)">Full Enable</button>
+                </div>
+            </div>
+            """
+        
+        html += """
+            <h2>📊 Quick Actions</h2>
+            <div class="controls">
+                <button onclick="emergencyDisableAll()" class="emergency">🚨 EMERGENCY: Disable All AI</button>
+                <button onclick="location.reload()">🔄 Refresh Dashboard</button>
+                <button onclick="showRollbackHistory()">📈 Rollback History</button>
+            </div>
+            
+            <script>
+                function updateRollout(feature, percentage) {
+                    if (percentage === 0) {
+                        const reason = prompt('Emergency disable reason:');
+                        if (!reason) return;
+                        if (!confirm(`Emergency disable ${feature}? Reason: ${reason}`)) return;
+                    } else {
+                        if (!confirm(`Update ${feature} to ${percentage}% rollout?`)) return;
+                    }
+                    
+                    fetch('/admin/rollout/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ feature: feature, percentage: percentage })
+                    }).then(() => location.reload());
+                }
+                
+                function emergencyDisableAll() {
+                    const reason = prompt('EMERGENCY: Disable all AI features. Reason:');
+                    if (!reason) return;
+                    if (!confirm('This will disable ALL AI features immediately!')) return;
+                    
+                    fetch('/admin/rollout/emergency-disable-all', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason: reason })
+                    }).then(() => location.reload());
+                }
+            </script>
+        </body>
+        </html>
+        """
+        
+        return html
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Rollout dashboard failed: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }), 500
+
+
+@app.route("/admin/rollout/update", methods=["POST"])
+def update_rollout():
+    """Update feature rollout percentage."""
+    _check_auth()
+    
+    try:
+        from .feature_rollout import get_rollout_manager
+        
+        data = request.get_json()
+        feature_name = data.get("feature")
+        percentage = data.get("percentage", 0)
+        
+        manager = get_rollout_manager()
+        success = manager.update_rollout_percentage(feature_name, percentage)
+        
+        return jsonify({
+            "success": success,
+            "feature": feature_name,
+            "new_percentage": percentage
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/admin/rollout/emergency-disable-all", methods=["POST"]) 
+def emergency_disable_all():
+    """Emergency disable all AI features."""
+    _check_auth()
+    
+    try:
+        from .feature_rollout import get_rollout_manager
+        
+        data = request.get_json()
+        reason = data.get("reason", "Emergency disable")
+        
+        manager = get_rollout_manager()
+        ai_features = [name for name in manager._flags.keys() if name.startswith("ai_")]
+        
+        results = {}
+        for feature in ai_features:
+            results[feature] = manager.emergency_disable_feature(feature, reason)
+        
+        return jsonify({
+            "success": True,
+            "disabled_features": results,
+            "reason": reason
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/admin")

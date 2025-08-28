@@ -393,33 +393,53 @@ class RandomSelectionModel(BaseProductSelectionModel):
         return weight
 
 
-def get_selection_model(user_query: str, product_count: int) -> BaseProductSelectionModel:
+def get_selection_model(user_query: str, product_count: int, user_id: str = "system") -> BaseProductSelectionModel:
     """
     Determine which model to use based on query complexity and product count.
-    
-    FIXED: More intelligent model selection based on query analysis.
-    Lowered thresholds to enable AI more frequently as per Phase R2 roadmap.
+    Phase R7: Enhanced with feature rollout management for gradual deployment.
     
     Args:
     ----
         user_query: User's search query
         product_count: Number of available products
+        user_id: User ID for feature rollout decisions
         
     Returns:
     -------
         Appropriate product selection model
     """
+    # R7: Import rollout manager
+    from .feature_rollout import is_ai_feature_enabled
+    
     # Use has_technical_features for better AI detection
     has_tech_features = has_technical_features(user_query)
     
-    # Use Feature Match AI for technical queries with sufficient products  
-    if product_count >= 3 and has_tech_features:  # Lowered from 5 to 3
-        log.info(f"Using FeatureMatchModel: {product_count} products, tech_features={has_tech_features}")
+    # R7: Check if AI features are enabled for this user
+    ai_enabled = is_ai_feature_enabled(
+        "ai_feature_matching", 
+        user_id,
+        has_technical_features=has_tech_features,
+        product_count=product_count
+    )
+    
+    # Use Feature Match AI for technical queries with sufficient products (if enabled)
+    if product_count >= 3 and has_tech_features and ai_enabled:
+        log.info(f"Using FeatureMatchModel: {product_count} products, tech_features={has_tech_features}, rollout=enabled")
         return FeatureMatchModel()
     
-    # Use Popularity for moderate datasets
-    elif product_count >= 2:  # Lowered from 3 to 2
-        log.info(f"Using PopularityModel: {product_count} products")
+    # R7: Check smart fallback chain rollout
+    smart_fallback_enabled = is_ai_feature_enabled(
+        "ai_smart_fallback_chain",
+        user_id,
+        product_count=product_count
+    )
+    
+    # Use Popularity for moderate datasets (with smart fallback if enabled)
+    if product_count >= 2:
+        if smart_fallback_enabled:
+            log.info(f"Using PopularityModel: {product_count} products, smart_fallback=enabled")
+        else:
+            log.info(f"Using PopularityModel: {product_count} products, smart_fallback=disabled")
         return PopularityModel()
     
     # Random selection only for single products
@@ -434,7 +454,7 @@ async def smart_product_selection(
     **kwargs
 ) -> Optional[Dict]:
     """
-    ENHANCED: Better logging and decision transparency.
+    ENHANCED: Comprehensive monitoring integration (Phase R5.1).
     
     High-level function for intelligent product selection with fallback chain:
     Feature Match AI → Popularity → Random
@@ -449,60 +469,183 @@ async def smart_product_selection(
     -------
         Selected product with selection metadata
     """
+    # R5.1: Import monitoring functions
+    from .ai_performance_monitor import log_ai_selection, log_ai_fallback
+    
     if not products:
         log.warning("smart_product_selection: No products available")
         return None
     
-    # Log selection decision process
+    # R5.1: Start performance tracking
+    start_time = time.time()
     product_count = len(products)
     has_tech = has_technical_features(user_query)
+    primary_model = None
     
     log.info(f"SELECTION_DECISION: query='{user_query}', products={product_count}, has_tech={has_tech}")
     
-    # Get primary model with detailed logging
-    primary_model = get_selection_model(user_query, product_count)
+    # Get primary model with detailed logging (R7: with user_id for rollout)
+    user_id = kwargs.get("user_id", "system")
+    primary_model = get_selection_model(user_query, product_count, user_id)
+    model_name = primary_model.__class__.__name__
     
-    log.info(f"PRIMARY_MODEL: {primary_model.__class__.__name__}")
+    log.info(f"PRIMARY_MODEL: {model_name}")
     
     try:
+        # R5.1: Attempt primary selection with monitoring
         result = await primary_model.select_product(products, user_query, **kwargs)
+        
         if result:
-            log.info(f"PRIMARY_SUCCESS: {primary_model.model_name} selected product {result.get('asin', 'unknown')}")
+            # R5.1: SUCCESS - Log successful selection with comprehensive metadata
+            processing_time = (time.time() - start_time) * 1000
+            
+            selection_metadata = {
+                "processing_time_ms": processing_time,
+                "model_name": model_name,
+                "product_count": product_count,
+                "has_technical_features": has_tech,
+                **result.get("_ai_metadata", {}),
+                **result.get("_popularity_metadata", {}),
+                **result.get("_random_metadata", {})
+            }
+            
+            log_ai_selection(
+                model_name=model_name,
+                user_query=user_query,
+                product_count=product_count,
+                selection_metadata=selection_metadata,
+                success=True
+            )
+            
+            log.info(f"PRIMARY_SUCCESS: {model_name} selected product {result.get('asin', 'unknown')} in {processing_time:.1f}ms")
             return result
+            
     except Exception as e:
-        log.warning(f"PRIMARY_FAILURE: {primary_model.model_name} failed: {e}")
+        # R5.1: PRIMARY FAILURE - Log failure and attempt fallback
+        log.error(f"PRIMARY_FAILURE: {model_name} failed: {e}")
+        
+        # Log primary failure
+        log_ai_fallback(
+            primary_model=model_name,
+            user_query=user_query,
+            product_count=product_count,
+            failure_reason=str(e),
+            fallback_type="popularity"
+        )
     
-    # Fallback to Popularity if primary was AI
+    # R5.1: Fallback to Popularity if primary was AI
     if hasattr(primary_model, 'model_name') and primary_model.model_name == "FeatureMatchModel":
         try:
             log.info("FALLBACK_ATTEMPT: Trying PopularityModel after AI failure")
             popularity_model = PopularityModel()
             result = await popularity_model.select_product(products, user_query, **kwargs)
+            
             if result:
-                log.info(f"FALLBACK_SUCCESS: PopularityModel selected product {result.get('asin', 'unknown')}")
+                # R5.1: Log successful fallback
+                processing_time = (time.time() - start_time) * 1000
+                
+                selection_metadata = {
+                    "processing_time_ms": processing_time,
+                    "model_name": "PopularityModel",
+                    "is_fallback": True,
+                    "primary_failed": model_name,
+                    **result.get("_popularity_metadata", {})
+                }
+                
+                log_ai_selection(
+                    model_name="PopularityModel",
+                    user_query=user_query,
+                    product_count=product_count,
+                    selection_metadata=selection_metadata,
+                    success=True
+                )
+                
+                log.info(f"FALLBACK_SUCCESS: PopularityModel selected product {result.get('asin', 'unknown')} in {processing_time:.1f}ms")
                 return result
+                
         except Exception as e:
             log.warning(f"FALLBACK_FAILURE: PopularityModel failed: {e}")
+            
+            # R5.1: Log fallback failure
+            log_ai_fallback(
+                primary_model=model_name,
+                user_query=user_query,
+                product_count=product_count,
+                failure_reason=f"PopularityModel failed: {e}",
+                fallback_type="random"
+            )
     
-    # Final fallback to Random
+    # R5.1: Final fallback to Random with monitoring
     try:
         log.info("FINAL_FALLBACK: Trying RandomSelectionModel")
         random_model = RandomSelectionModel()
         result = await random_model.select_product(products, user_query, **kwargs)
+        
         if result:
-            log.info(f"FINAL_SUCCESS: RandomSelectionModel selected product {result.get('asin', 'unknown')}")
+            # R5.1: Log final fallback success
+            processing_time = (time.time() - start_time) * 1000
+            
+            selection_metadata = {
+                "processing_time_ms": processing_time,
+                "model_name": "RandomSelectionModel",
+                "is_final_fallback": True,
+                "primary_failed": model_name,
+                **result.get("_random_metadata", {})
+            }
+            
+            log_ai_selection(
+                model_name="RandomSelectionModel",
+                user_query=user_query,
+                product_count=product_count,
+                selection_metadata=selection_metadata,
+                success=True
+            )
+            
+            log.info(f"FINAL_SUCCESS: RandomSelectionModel selected product {result.get('asin', 'unknown')} in {processing_time:.1f}ms")
             return result
+            
     except Exception as e:
         log.error(f"FINAL_FAILURE: All selection models failed: {e}")
+        
+        # R5.1: Log complete system failure
+        log_ai_fallback(
+            primary_model=model_name,
+            user_query=user_query,
+            product_count=product_count,
+            failure_reason=f"All models failed: {e}",
+            fallback_type="ultimate"
+        )
     
-    # Ultimate fallback - return first product
+    # R5.1: Ultimate fallback - return first product with monitoring
     log.warning("ULTIMATE_FALLBACK: All models failed, returning first product")
+    processing_time = (time.time() - start_time) * 1000
+    
     fallback_product = products[0].copy()
     fallback_product["_fallback_metadata"] = {
         "fallback_selection": True,
         "reason": "All selection models failed",
-        "model_name": "UltimateFallback"
+        "model_name": "UltimateFallback",
+        "processing_time_ms": processing_time
     }
+    
+    # R5.1: Log ultimate fallback selection
+    selection_metadata = {
+        "processing_time_ms": processing_time,
+        "model_name": "UltimateFallback",
+        "is_ultimate_fallback": True,
+        "primary_failed": model_name,
+        "total_failures": "all"
+    }
+    
+    log_ai_selection(
+        model_name="UltimateFallback",
+        user_query=user_query,
+        product_count=product_count,
+        selection_metadata=selection_metadata,
+        success=True  # It's still technically a success, just not optimal
+    )
+    
+    log.info(f"ULTIMATE_SUCCESS: Fallback selected first product {fallback_product.get('asin', 'unknown')} in {processing_time:.1f}ms")
     
     return fallback_product
 

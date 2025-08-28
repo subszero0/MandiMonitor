@@ -470,24 +470,12 @@ async def _finalize_watch(
                                     )
                                 return
                             
-                            # STEP 3: Use intelligent product selection with AI integration (R7: with rollout)
-                            from .feature_rollout import is_ai_feature_enabled
-                            
-                            # R7: Check if multi-card experience is enabled for this user
-                            enable_multi_card = is_ai_feature_enabled(
-                                "ai_multi_card_experience",
-                                user_id,
-                                has_technical_features=True,
-                                product_count=len(filtered_products),
-                                multi_card_available=True
-                            )
-                            
+                            # STEP 3: Use intelligent product selection with AI integration
                             selected_result = await smart_product_selection_with_ai(
                                 products=filtered_products,
                                 user_query=watch_data["keywords"],
                                 user_preferences=watch_data,
-                                enable_multi_card=enable_multi_card,
-                                user_id=user_id  # R7: Pass user_id for rollout decisions
+                                enable_multi_card=True  # Enable Phase 6 multi-card experience
                             )
                             
                             # STEP 4: Handle single vs multi-card results
@@ -553,8 +541,7 @@ async def smart_product_selection_with_ai(
     products: List[Dict], 
     user_query: str, 
     user_preferences: Dict,
-    enable_multi_card: bool = True,
-    user_id: str = "system"  # R7: Added for rollout management
+    enable_multi_card: bool = True
 ) -> Dict[str, Any]:
     """Enhanced product selection that supports both single and multi-card experiences."""
     from .ai.feature_extractor import FeatureExtractor
@@ -567,21 +554,11 @@ async def smart_product_selection_with_ai(
         extractor = FeatureExtractor()
         user_features = extractor.extract_features(user_query)
         
-        # R7: Check if enhanced features are enabled before multi-card experience
-        from .feature_rollout import is_ai_feature_enabled
-        
-        enhanced_carousel_enabled = is_ai_feature_enabled(
-            "ai_enhanced_carousel",
-            user_id,
-            multi_card_enabled=enable_multi_card,
-            product_count=len(products)
-        )
-        
         # Check if we should use multi-card experience (Phase 6)
-        if enable_multi_card and len(products) >= 3 and user_features and enhanced_carousel_enabled:
+        if enable_multi_card and len(products) >= 3 and user_features:
             from .ai.enhanced_product_selection import EnhancedFeatureMatchModel
             
-            log.info(f"Attempting multi-card experience (enhanced_carousel={enhanced_carousel_enabled})")
+            log.info("Attempting multi-card experience")
             enhanced_model = EnhancedFeatureMatchModel()
             result = await enhanced_model.select_products(
                 products=products,
@@ -594,14 +571,9 @@ async def smart_product_selection_with_ai(
             return result
         
         else:
-            # Use single-card selection (existing logic) with R7 rollout management
-            log.info(f"Using single-card selection (enhanced_carousel={enhanced_carousel_enabled})")
-            
-            # R7: Pass user_id for rollout decisions in smart_product_selection
-            user_preferences_with_id = dict(user_preferences)
-            user_preferences_with_id["user_id"] = user_id
-            
-            selected_product = await smart_product_selection(products, user_query, **user_preferences_with_id)
+            # Use single-card selection (existing logic)
+            log.info("Using single-card selection")
+            selected_product = await smart_product_selection(products, user_query, **user_preferences)
             
             return {
                 "selection_type": "single_card",

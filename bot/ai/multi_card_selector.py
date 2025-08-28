@@ -117,7 +117,7 @@ class MultiCardSelector:
 
     def _should_show_multiple_cards(self, scored_products: List[Tuple[Dict, Dict]]) -> bool:
         """
-        Determine if multiple cards provide value to user.
+        OPTIMIZED: More flexible multi-card decision criteria.
         
         Args:
         ----
@@ -133,26 +133,25 @@ class MultiCardSelector:
         top_score = scored_products[0][1]["score"]
         second_score = scored_products[1][1]["score"]
         
-        # Show multiple cards if:
-        # 1. Multiple products are close in score (competitive options)
-        # 2. Products have different key features (meaningful choice)
-        # 3. Price ranges offer different value propositions
+        # ENHANCED CRITERIA: Show multi-card if ANY condition is met
+        conditions = {
+            "close_competition": (top_score - second_score) < 0.20,  # Increased from 0.15
+            "different_strengths": self._products_have_different_strengths(scored_products[:3]),
+            "price_value_choice": self._price_ranges_offer_value_choice(scored_products[:3]),
+            "high_feature_count": len(self._get_all_features(scored_products[:3])) >= 3,  # NEW
+            "gaming_specific": self._has_gaming_specific_features(scored_products[:3])  # NEW
+        }
         
-        close_competition = (top_score - second_score) < self.score_gap_threshold
-        different_strengths = self._products_have_different_strengths(scored_products[:3])
-        price_value_choice = self._price_ranges_offer_value_choice(scored_products[:3])
+        # Log decision process for debugging
+        log.info(f"MULTI_CARD_DECISION: {conditions}")
         
-        # If scores are very far apart (>30% gap), require strong evidence
-        large_score_gap = (top_score - second_score) > 0.30
-        if large_score_gap:
-            # Need both different strengths AND price choice for very different scores
-            decision = different_strengths and price_value_choice
-        else:
-            # Normal decision logic for closer scores
-            decision = close_competition or different_strengths or price_value_choice
+        # Show multi-card if ANY criterion is met (more liberal)
+        decision = any(conditions.values())
         
-        log.debug("Multi-card decision: close_competition=%s, different_strengths=%s, price_choice=%s -> %s",
-                 close_competition, different_strengths, price_value_choice, decision)
+        # Override: Force single card only if top score is VERY high
+        if top_score > 0.95 and (top_score - second_score) > 0.30:
+            log.info("OVERRIDE: Single card due to overwhelming top choice")
+            return False
         
         return decision
 
@@ -294,7 +293,8 @@ class MultiCardSelector:
         user_features: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Generate side-by-side feature comparison table.
+        Generate optimized side-by-side feature comparison table.
+        Phase R4.2: Enhanced with smart feature prioritization and cleaner formatting.
         
         Args:
         ----
@@ -303,7 +303,7 @@ class MultiCardSelector:
             
         Returns:
         -------
-            Comparison table with feature differences and strengths
+            Optimized comparison table with prioritized features and better insights
         """
         if not selected_products:
             return {"error": "No products to compare"}
@@ -313,11 +313,14 @@ class MultiCardSelector:
             'key_differences': [],
             'strengths': {},  # Which product excels in what
             'trade_offs': [],  # What user gains/loses with each choice
-            'summary': ""
+            'summary': "",
+            'priority_features': [],  # R4.2: Most important features first
+            'user_focused_insights': []  # R4.2: Insights based on user query
         }
         
-        # Extract key differentiating features for gaming monitors
-        comparison_features = ['refresh_rate', 'size', 'resolution', 'panel_type', 'price', 'brand', 'curvature']
+        # R4.2: Smart feature prioritization based on user intent
+        comparison_features = self._prioritize_features_for_user(user_features)
+        comparison['priority_features'] = comparison_features[:5]  # Top 5 features
         
         for feature in comparison_features:
             values = []
@@ -678,3 +681,103 @@ class MultiCardSelector:
             explanation_parts.append("Multiple good options found")
         
         return " • ".join(explanation_parts)
+
+    def _get_all_features(self, scored_products: List[Tuple[Dict, Dict]]) -> set:
+        """Get all unique features across products."""
+        all_features = set()
+        for _, score_data in scored_products:
+            all_features.update(score_data.get("matched_features", []))
+            # Also check product features
+            product, _ = _
+            title = product.get("title", "").lower()
+            # Extract additional features from title
+            if "gaming" in title:
+                all_features.add("gaming")
+            if "curved" in title:
+                all_features.add("curved")
+            if "4k" in title:
+                all_features.add("4k")
+            if "hdr" in title:
+                all_features.add("hdr")
+        return all_features
+
+    def _has_gaming_specific_features(self, scored_products: List[Tuple[Dict, Dict]]) -> bool:
+        """Check if products have gaming-specific features that warrant comparison."""
+        gaming_indicators = ["gaming", "hz", "fps", "curved", "g-sync", "freesync", "low latency", "esports"]
+        
+        for product, score_data in scored_products:
+            title = product.get("title", "").lower()
+            features = score_data.get("matched_features", [])
+            
+            # Check title and features for gaming indicators
+            for indicator in gaming_indicators:
+                if indicator in title or any(indicator in str(f).lower() for f in features):
+                    return True
+        
+        return False
+
+    def _prioritize_features_for_user(self, user_features: Dict[str, Any]) -> List[str]:
+        """
+        R4.2: Intelligently prioritize features based on user intent and query.
+        
+        Args:
+        ----
+            user_features: User requirements and preferences
+            
+        Returns:
+        -------
+            Ordered list of features by importance to user
+        """
+        # Base feature set
+        all_features = ['price', 'refresh_rate', 'size', 'resolution', 'panel_type', 'brand', 'curvature', 'connectivity']
+        
+        # Analyze user query for intent
+        user_query = str(user_features.get('user_query', '')).lower()
+        
+        # Priority weights based on user intent
+        feature_weights = {}
+        
+        # Gaming intent - prioritize performance
+        if any(word in user_query for word in ['gaming', 'game', 'fps', 'esports', 'competitive']):
+            feature_weights.update({
+                'refresh_rate': 10,
+                'size': 8,
+                'resolution': 7,
+                'panel_type': 6,
+                'price': 5
+            })
+        
+        # Professional/work intent - prioritize display quality
+        elif any(word in user_query for word in ['work', 'office', 'programming', 'design', 'productivity']):
+            feature_weights.update({
+                'size': 10,
+                'resolution': 9,
+                'panel_type': 7,
+                'connectivity': 6,
+                'price': 5
+            })
+        
+        # Budget-conscious - prioritize value
+        elif any(word in user_query for word in ['cheap', 'budget', 'affordable', 'under']):
+            feature_weights.update({
+                'price': 10,
+                'size': 7,
+                'resolution': 6,
+                'refresh_rate': 5,
+                'brand': 4
+            })
+        
+        # Default prioritization
+        else:
+            feature_weights.update({
+                'price': 8,
+                'size': 7,
+                'resolution': 6,
+                'refresh_rate': 5,
+                'brand': 4
+            })
+        
+        # Sort features by weight (higher weight = higher priority)
+        prioritized = sorted(all_features, key=lambda f: feature_weights.get(f, 1), reverse=True)
+        
+        return prioritized

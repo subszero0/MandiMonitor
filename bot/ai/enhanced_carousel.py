@@ -162,7 +162,8 @@ def build_comparison_summary_card(
     product_count: int
 ) -> Dict:
     """
-    Build a detailed comparison summary card with technical specifications.
+    Build optimized comparison summary card with smart formatting.
+    Phase R4.3: Enhanced for better readability and performance.
     
     Args:
     ----
@@ -172,34 +173,72 @@ def build_comparison_summary_card(
         
     Returns:
     -------
-        Summary card dict
+        Optimized summary card dict
     """
-    caption = "🤖 **AI Detailed Comparison**\n\n"
+    caption = "🤖 **AI Smart Comparison**\n\n"
     
     # Add selection reason
     caption += f"📋 **Why these {product_count} options?**\n{selection_reason}\n\n"
     
-    # Build comprehensive specs comparison table
+    # Build optimized specs comparison table - R4.3: Priority features first
     key_diffs = comparison_table.get('key_differences', [])
+    priority_features = comparison_table.get('priority_features', [])
+    
     if key_diffs:
-        caption += "📊 **Technical Specifications**:\n\n"
+        caption += "📊 **Key Specifications**:\n\n"
         
-        # Add each specification row in a simple format
-        gaming_specs = ['refresh_rate', 'size', 'resolution', 'panel_type', 'price']
-        for diff in key_diffs:
-            feature = diff['feature']
-            if any(spec in feature.lower().replace(' ', '_') for spec in gaming_specs):
-                values = diff['values']
-                best_index = diff.get('highlight_best', -1)
-                
-                caption += f"**{feature}**:\n"
-                for i, value in enumerate(values[:product_count]):
-                    position_emoji = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
-                    if best_index == i:
-                        caption += f"  {position_emoji} {value} ⭐\n"
-                    else:
-                        caption += f"  {position_emoji} {value}\n"
-                caption += "\n"
+        # R4.3: Show priority features first, limit to top 4 for readability
+        shown_features = 0
+        
+        # First, show priority features
+        for priority_feature in priority_features[:3]:  # Top 3 priority features
+            for diff in key_diffs:
+                feature = diff['feature']
+                if (priority_feature in feature.lower().replace(' ', '_') or 
+                    feature.lower().replace(' ', '_') == priority_feature):
+                    
+                    values = diff['values']
+                    best_index = diff.get('highlight_best', -1)
+                    
+                    caption += f"**{feature}**:\n"
+                    for i, value in enumerate(values[:product_count]):
+                        position_emoji = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
+                        if best_index == i:
+                            caption += f"  {position_emoji} {value} ⭐\n"
+                        else:
+                            caption += f"  {position_emoji} {value}\n"
+                    caption += "\n"
+                    shown_features += 1
+                    break
+            
+            if shown_features >= 4:  # Limit to prevent overcrowding
+                break
+        
+        # Add remaining important features if we haven't hit the limit
+        if shown_features < 4:
+            remaining_specs = ['price', 'size', 'resolution']  # Always important
+            for spec in remaining_specs:
+                if shown_features >= 4:
+                    break
+                    
+                for diff in key_diffs:
+                    feature = diff['feature']
+                    if (spec in feature.lower().replace(' ', '_') and 
+                        not any(pf in feature.lower().replace(' ', '_') for pf in priority_features[:3])):
+                        
+                        values = diff['values']
+                        best_index = diff.get('highlight_best', -1)
+                        
+                        caption += f"**{feature}**:\n"
+                        for i, value in enumerate(values[:product_count]):
+                            position_emoji = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
+                            if best_index == i:
+                                caption += f"  {position_emoji} {value} ⭐\n"
+                            else:
+                                caption += f"  {position_emoji} {value}\n"
+                        caption += "\n"
+                        shown_features += 1
+                        break
     
     # Add detailed feature analysis
     caption += "🔍 **Key Insights**:\n"
