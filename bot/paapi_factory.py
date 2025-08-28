@@ -19,6 +19,12 @@ class PaapiClientProtocol(Protocol):
         """Get detailed product information."""
         ...
         
+    async def get_items_batch(
+        self, asins: list[str], resources=None, priority: str = "normal"
+    ):
+        """Get detailed product information for multiple ASINs efficiently."""
+        ...
+        
     async def search_items_advanced(
         self,
         keywords=None,
@@ -71,6 +77,14 @@ async def get_item_detailed(
     """Get detailed product information using the active PA-API client."""
     client = await get_paapi_client()
     return await client.get_item_detailed(asin, resources, priority)
+
+
+async def get_items_batch(
+    asins: list[str], resources=None, priority: str = "normal"
+):
+    """Get detailed product information for multiple ASINs efficiently using the active PA-API client."""
+    client = await get_paapi_client()
+    return await client.get_items_batch(asins, resources, priority)
 
 
 async def search_items_advanced(

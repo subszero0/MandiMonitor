@@ -1,24 +1,30 @@
-# syntax=docker/dockerfile:1
-FROM python:3.12-slim AS base
-ENV PYTHONUNBUFFERED=1 \
-    POETRY_VIRTUALENVS_CREATE=false \
-    POETRY_NO_INTERACTION=1
+FROM python:3.12-slim
 
-# ---------- builder ----------
-FROM base AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir poetry
 WORKDIR /app
-COPY pyproject.toml poetry.lock* ./
-RUN poetry install --only main --no-root
+
+# Install system dependencies for building Python packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip and install wheel
+RUN pip install --upgrade pip setuptools wheel
+
+# Copy requirements and paapi5-python-sdk-example for installation
+COPY requirements.txt .
+COPY paapi5-python-sdk-example ./paapi5-python-sdk-example
+
+# Install Python packages
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy remaining application code
 COPY . .
-RUN poetry install --only-root
 
-# ---------- runtime ----------
-FROM base AS runtime
-WORKDIR /app
-COPY --from=builder /usr/local/lib/python*/site-packages /usr/local/lib/python*/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-COPY --from=builder /app .
+# Expose port
 EXPOSE 8000
-CMD ["python", "-m", "bot.main"] 
+
+# Run the application
+CMD ["python", "-m", "bot.main"]

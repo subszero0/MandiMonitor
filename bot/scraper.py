@@ -79,6 +79,16 @@ async def scrape_product_data(asin: str) -> dict:
             await asyncio.sleep(1 + (hash(asin) % 3))  # 1-4 second delay based on ASIN
             
             await page.goto(url, timeout=60_000, wait_until="domcontentloaded")
+            
+            # Wait for product content to load (Amazon uses a lot of dynamic loading)
+            try:
+                # Wait for any of the main product selectors to appear
+                await page.wait_for_selector(
+                    "#productTitle, #corePrice_feature_div, .a-price-whole", 
+                    timeout=10_000
+                )
+            except Exception as wait_error:
+                log.warning("Content load timeout for ASIN %s: %s", asin, wait_error)
 
             # Save HTML for debugging
             html = await page.content()

@@ -187,20 +187,25 @@ class FeatureMatchModel(BaseProductSelectionModel):
         if confidence < 0.3:  # Low confidence suggests non-technical query
             return False
         
-        # Check for explicit technical features
+        # Check for explicit technical features first
         technical_features = [
             "refresh_rate", "size", "resolution", "curvature", "panel_type"
         ]
         
         found_features = [f for f in technical_features if f in user_features]
         
-        # Need at least 1 specific technical feature for AI selection
+        # If user has specific technical features, definitely use AI
         if len(found_features) >= 1:
+            log.debug(f"Technical features found: {found_features} - using AI")
             return True
         
-        # Check technical density as fallback
+        # Even for simple queries, use AI to analyze and showcase technical features
+        # This allows the AI to extract product features and present comparisons
         technical_density = user_features.get("technical_density", 0.0)
-        return technical_density > 0.4
+        use_ai = technical_density > 0.4
+        
+        log.debug(f"No explicit features, technical_density={technical_density:.3f}, use_ai={use_ai}")
+        return use_ai
     
     def explain_selection(self, product: Dict) -> str:
         """Generate user-friendly explanation of AI selection."""

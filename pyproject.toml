@@ -10,8 +10,8 @@ python = "^3.12"
 python-telegram-bot = "^21.0"
 SQLModel = "^0.0.14"
 APScheduler = "^3.10.4"
-python-amazon-paapi = "==5.*"  # Legacy SDK (to be removed after migration)
-paapi5-python-sdk = "^1.1.0"  # Official Amazon SDK for migration (installed locally)
+# python-amazon-paapi removed - using official paapi5-python-sdk
+paapi5-python-sdk = {path = "./paapi5-python-sdk-example", develop = true}  # Official Amazon SDK - Local install
 playwright = "==1.*"
 Flask = "^3.0"
 sentry-sdk = "^2.0.0"

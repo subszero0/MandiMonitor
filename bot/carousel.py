@@ -26,7 +26,7 @@ def build_single_card(
     Args:
     ----
         title: Product title/name
-        price: Current price in rupees
+        price: Current price in rupees (already in correct format)
         image: Product image URL
         asin: Amazon ASIN for affiliate link
         watch_id: Watch ID for click tracking
@@ -36,8 +36,13 @@ def build_single_card(
         Tuple of (caption_text, keyboard_markup)
 
     """
-    # Build caption with price formatting (convert from paise to INR)
-    caption = f"📱 {title}\n💰 ₹{price//100:,}\n\n🔥 Current best price!"
+    # Escape Markdown special characters in title to prevent parsing errors
+    escaped_title = title.replace("*", "\\*").replace("_", "\\_").replace("[", "\\[").replace("]", "\\]").replace("(", "\\(").replace(")", "\\)").replace("~", "\\~").replace("`", "\\`").replace(">", "\\>").replace("#", "\\#").replace("+", "\\+").replace("-", "\\-").replace("=", "\\=").replace("|", "\\|").replace("{", "\\{").replace("}", "\\}").replace(".", "\\.").replace("!", "\\!")
+    
+    # Build caption with proper price formatting (price is already in rupees, not paise)
+    # Check if price needs conversion from paise to rupees
+    display_price = price // 100 if price > 10000 else price
+    caption = f"📱 {escaped_title}\n💰 ₹{display_price:,}\n\n🔥 Current best price!"
 
     # Create buy button with callback data for click tracking
     keyboard = InlineKeyboardMarkup(

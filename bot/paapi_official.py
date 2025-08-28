@@ -91,6 +91,242 @@ class OfficialPaapiClient:
             log.error("Unexpected PA-API error for ASIN %s: %s", asin, exc)
             raise
 
+    async def get_items_batch(
+        self, asins: List[str], resources: Optional[List[str]] = None, priority: str = "normal"
+    ) -> Dict[str, Dict]:
+        """Get comprehensive product information for multiple ASINs in batches.
+
+        PA-API supports up to 10 ASINs per GetItems request, this method handles batching
+        automatically and significantly reduces API calls and rate limiting delays.
+
+        Args:
+        ----
+            asins: List of Amazon Standard Identification Numbers (max recommended: 50)
+            resources: List of PA-API resources to fetch (ignored for now, using defaults)
+            priority: Request priority for rate limiting
+
+        Returns:
+        -------
+            Dict mapping ASIN to product information dict
+            
+        Raises:
+        ------
+            QuotaExceededError: When PA-API quota is exceeded
+        """
+        if not asins:
+            return {}
+            
+        # Remove duplicates while preserving order
+        unique_asins = list(dict.fromkeys(asins))
+        
+        # PA-API supports max 10 ASINs per GetItems request
+        batch_size = 10
+        batches = [unique_asins[i:i + batch_size] for i in range(0, len(unique_asins), batch_size)]
+        
+        log.info("Processing %d ASINs in %d batch(es) of max %d items each", 
+                len(unique_asins), len(batches), batch_size)
+        
+        results = {}
+        
+        for batch_idx, batch_asins in enumerate(batches):
+            log.info("Processing batch %d/%d with %d ASINs: %s", 
+                    batch_idx + 1, len(batches), len(batch_asins), batch_asins)
+            
+            await acquire_api_permission(priority)
+            
+            try:
+                batch_result = await asyncio.to_thread(self._sync_get_items_batch, batch_asins)
+                results.update(batch_result)
+                
+                log.info("Batch %d/%d completed successfully, got %d results", 
+                        batch_idx + 1, len(batches), len(batch_result))
+                        
+            except ApiException as exc:
+                if exc.status in [503, 429]:
+                    log.warning("PA-API quota exceeded for batch %d: %s", batch_idx + 1, batch_asins)
+                    raise QuotaExceededError(f"PA-API quota exceeded for batch {batch_idx + 1}") from exc
+                log.error("PA-API error for batch %d (%s): %s", batch_idx + 1, batch_asins, exc)
+                log.error("Request ID: %s", exc.headers.get("x-amzn-RequestId", "N/A"))
+                # Continue with next batch rather than failing completely
+                continue
+            except Exception as exc:
+                log.error("Unexpected PA-API error for batch %d (%s): %s", batch_idx + 1, batch_asins, exc)
+                # Continue with next batch rather than failing completely
+                continue
+        
+        log.info("Batch processing completed: %d/%d ASINs successfully processed", 
+                len(results), len(unique_asins))
+        
+        return results
+
+    def _sync_get_items_batch(self, asins: List[str]) -> Dict[str, Dict]:
+        """Synchronous batch GetItems PA-API call using official SDK."""
+        if not asins:
+            return {}
+            
+        # Get appropriate resources from resource manager
+        resources = self.resource_manager.get_detailed_resources("get_items")
+        
+        # Create the request object with proper marketplace configuration
+        get_items_request = GetItemsRequest(
+            partner_tag=settings.PAAPI_TAG,
+            partner_type=PartnerType.ASSOCIATES,
+            marketplace=settings.PAAPI_MARKETPLACE,  # "www.amazon.in"
+            condition=Condition.NEW,
+            item_ids=asins,  # List of ASINs
+            resources=resources
+        )
+        
+        # Make the API call
+        response = self.api.get_items(get_items_request)
+        
+        # Extract data and convert to expected format
+        results = {}
+        
+        if hasattr(response, 'items_result') and response.items_result:
+            items = response.items_result.items or []
+            log.info("Official PA-API batch call returned %d items for %d requested ASINs", 
+                    len(items), len(asins))
+                    
+            for item in items:
+                try:
+                    asin = item.asin
+                    
+                    # Extract comprehensive product information
+                    product_data = {
+                        "asin": asin,
+                        "title": getattr(item.item_info.title, 'display_value', '') if hasattr(item, 'item_info') and item.item_info and hasattr(item.item_info, 'title') else '',
+                        "price": None,
+                        "list_price": None,
+                        "savings_amount": None,
+                        "savings_percent": None,
+                        "image_url": None,
+                        "rating": None,
+                        "review_count": None,
+                        "brand": None,
+                        "model": None,
+                        "color": None,
+                        "size": None,
+                        "weight": None,
+                        "dimensions": None,
+                        "features": [],
+                        "specifications": {},
+                        "availability": None,
+                        "prime": False,
+                        "free_shipping": False,
+                        "url": None
+                    }
+                    
+                    # Extract pricing information
+                    if hasattr(item, 'offers') and item.offers and hasattr(item.offers, 'listings') and item.offers.listings:
+                        listing = item.offers.listings[0]  # Get primary offer
+                        
+                        # Current price
+                        if hasattr(listing, 'price') and listing.price:
+                            price_info = listing.price
+                            if hasattr(price_info, 'amount') and price_info.amount:
+                                product_data["price"] = int(float(price_info.amount) * 100)  # Convert to paise
+                        
+                        # List price and savings
+                        if hasattr(listing, 'saving_basis') and listing.saving_basis:
+                            saving_basis = listing.saving_basis
+                            if hasattr(saving_basis, 'amount') and saving_basis.amount:
+                                product_data["list_price"] = int(float(saving_basis.amount) * 100)  # Convert to paise
+                                
+                                # Calculate savings
+                                if product_data["price"]:
+                                    product_data["savings_amount"] = product_data["list_price"] - product_data["price"]
+                                    if product_data["list_price"] > 0:
+                                        product_data["savings_percent"] = int((product_data["savings_amount"] / product_data["list_price"]) * 100)
+                        
+                        # Availability
+                        if hasattr(listing, 'availability') and listing.availability:
+                            product_data["availability"] = getattr(listing.availability, 'message', '')
+                        
+                        # Prime and shipping
+                        if hasattr(listing, 'delivery_info') and listing.delivery_info:
+                            delivery = listing.delivery_info
+                            product_data["prime"] = getattr(delivery, 'is_prime_eligible', False)
+                            product_data["free_shipping"] = getattr(delivery, 'is_free_shipping_eligible', False)
+                    
+                    # Extract images
+                    if hasattr(item, 'images') and item.images:
+                        primary_image = item.images.primary
+                        if hasattr(primary_image, 'large') and primary_image.large:
+                            product_data["image_url"] = primary_image.large.url
+                        elif hasattr(primary_image, 'medium') and primary_image.medium:
+                            product_data["image_url"] = primary_image.medium.url
+                    
+                    # Extract customer reviews
+                    if hasattr(item, 'customer_reviews') and item.customer_reviews:
+                        reviews = item.customer_reviews
+                        if hasattr(reviews, 'star_rating') and reviews.star_rating:
+                            product_data["rating"] = getattr(reviews.star_rating, 'value', None)
+                        if hasattr(reviews, 'count') and reviews.count:
+                            product_data["review_count"] = reviews.count
+                    
+                    # Extract item info details
+                    if hasattr(item, 'item_info') and item.item_info:
+                        info = item.item_info
+                        
+                        # Brand
+                        if hasattr(info, 'by_line_info') and info.by_line_info:
+                            brand_info = info.by_line_info
+                            if hasattr(brand_info, 'brand') and brand_info.brand:
+                                product_data["brand"] = getattr(brand_info.brand, 'display_value', '')
+                        
+                        # Model
+                        if hasattr(info, 'model_number') and info.model_number:
+                            product_data["model"] = getattr(info.model_number, 'display_value', '')
+                        
+                        # Color  
+                        if hasattr(info, 'color') and info.color:
+                            product_data["color"] = getattr(info.color, 'display_value', '')
+                        
+                        # Size
+                        if hasattr(info, 'size') and info.size:
+                            product_data["size"] = getattr(info.size, 'display_value', '')
+                        
+                        # Features
+                        if hasattr(info, 'features') and info.features and hasattr(info.features, 'display_values'):
+                            product_data["features"] = info.features.display_values or []
+                        
+                        # Technical specifications
+                        if hasattr(info, 'technical_details') and info.technical_details:
+                            tech_details = info.technical_details
+                            if hasattr(tech_details, 'display_values'):
+                                for detail in (tech_details.display_values or []):
+                                    if hasattr(detail, 'label') and hasattr(detail, 'value'):
+                                        product_data["specifications"][detail.label] = detail.value
+                        
+                        # Product dimensions
+                        if hasattr(info, 'product_dimensions') and info.product_dimensions:
+                            product_data["dimensions"] = getattr(info.product_dimensions, 'display_value', '')
+                        
+                        # Item weight
+                        if hasattr(info, 'item_weight') and info.item_weight:
+                            product_data["weight"] = getattr(info.item_weight, 'display_value', '')
+                    
+                    # Product URL
+                    if hasattr(item, 'detail_page_url'):
+                        product_data["url"] = item.detail_page_url
+                    
+                    results[asin] = product_data
+                    log.debug("Processed batch item %s: %s", asin, product_data["title"][:50])
+                    
+                except Exception as item_error:
+                    log.warning("Failed to process batch item %s: %s", getattr(item, 'asin', 'unknown'), item_error)
+                    continue
+        
+        # Log any ASINs that weren't found
+        found_asins = set(results.keys())
+        missing_asins = set(asins) - found_asins
+        if missing_asins:
+            log.warning("Batch processing: %d ASINs not found in response: %s", 
+                       len(missing_asins), list(missing_asins))
+        
+        return results
+
     def _sync_get_item_detailed(self, asin: str) -> Dict:
         """Synchronous detailed PA-API call using official SDK."""
         # Get appropriate resources from resource manager
@@ -297,9 +533,14 @@ class OfficialPaapiClient:
                 log.info("Retrieved %d items from page %d, total so far: %d", 
                         len(page_items), page, len(all_items))
                 
-                # Rate limiting: Wait 1 second between requests to respect PA-API limits
+                # Rate limiting: Wait longer between requests to respect PA-API limits
+                # Amazon PA-API is very strict about rate limits for SearchItems requests
                 if page < pages_needed:  # Don't wait after the last request
-                    time.sleep(1.1)  # Slightly more than 1 second to be safe
+                    # Use a longer delay for pagination to avoid 429 errors
+                    # SearchItems has stricter limits than GetItems
+                    import time
+                    time.sleep(2.5)  # Increased from 1.1s to 2.5s for pagination
+                    log.info("Applied 2.5s rate limiting between pagination requests")
 
             except ApiException as e:
                 log.error("Official PA-API search failed on page %d: Status %s, Body: %s", page, e.status, e.body)
@@ -501,20 +742,35 @@ class OfficialPaapiClient:
         if item.item_info and item.item_info.title:
             data["title"] = item.item_info.title.display_value or ""
 
-        # Extract pricing from offersV2
-        if item.offers_v2 and item.offers_v2.listings:
-            offer = item.offers_v2.listings[0]
+        # Extract pricing from offers (use the same logic as detailed extraction)
+        if hasattr(item, 'offers') and item.offers and hasattr(item.offers, 'listings') and item.offers.listings:
+            listing = item.offers.listings[0]  # Get primary offer
             
-            # Offers are returned as dictionaries
-            if isinstance(offer, dict):
-                if 'Price' in offer and 'Money' in offer['Price']:
-                    data["price"] = int(offer['Price']['Money']['Amount'] * 100)  # Convert to paise
+            # Current price
+            if hasattr(listing, 'price') and listing.price:
+                price_info = listing.price
+                if hasattr(price_info, 'amount') and price_info.amount:
+                    data["price"] = int(float(price_info.amount) * 100)  # Convert to paise
+            
+            # List price and savings
+            if hasattr(listing, 'saving_basis') and listing.saving_basis:
+                saving_basis = listing.saving_basis
+                if hasattr(saving_basis, 'amount') and saving_basis.amount:
+                    data["list_price"] = int(float(saving_basis.amount) * 100)  # Convert to paise
                     
-                if 'Price' in offer and 'SavingBasis' in offer['Price'] and 'Money' in offer['Price']['SavingBasis']:
-                    data["list_price"] = int(offer['Price']['SavingBasis']['Money']['Amount'] * 100)
-                    
-                if 'Price' in offer and 'Savings' in offer['Price'] and 'Percentage' in offer['Price']['Savings']:
-                    data["savings_percent"] = offer['Price']['Savings']['Percentage']
+                    # Calculate savings percentage
+                    if data["price"] and data["list_price"] > 0:
+                        savings_amount = data["list_price"] - data["price"]
+                        data["savings_percent"] = int((savings_amount / data["list_price"]) * 100)
+
+        # Fallback: Try alternate offer structure if main offers didn't work
+        if data["price"] is None and hasattr(item, 'offers') and item.offers:
+            if hasattr(item.offers, 'summaries') and item.offers.summaries:
+                for summary in item.offers.summaries:
+                    if hasattr(summary, 'lowest_price') and summary.lowest_price:
+                        if hasattr(summary.lowest_price, 'amount') and summary.lowest_price.amount:
+                            data["price"] = int(float(summary.lowest_price.amount) * 100)
+                            break
 
         # Extract reviews
         if item.customer_reviews:
@@ -524,8 +780,11 @@ class OfficialPaapiClient:
                 data["review_count"] = item.customer_reviews.count
 
         # Extract image
-        if item.images and item.images.primary and item.images.primary.medium:
-            data["image_url"] = item.images.primary.medium.url
+        if item.images and item.images.primary:
+            if item.images.primary.medium:
+                data["image_url"] = item.images.primary.medium.url
+            elif item.images.primary.large:
+                data["image_url"] = item.images.primary.large.url
 
         return data
 

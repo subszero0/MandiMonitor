@@ -188,8 +188,9 @@ class MultiCardSelector:
         
         prices = []
         for product, _ in scored_products:
-            price = product.get("price", 0)
-            if price > 0:
+            price = product.get("price")
+            # Ensure price is not None and is a valid number
+            if price is not None and isinstance(price, (int, float)) and price > 0:
                 prices.append(price)
         
         if len(prices) < 2:
@@ -264,10 +265,13 @@ class MultiCardSelector:
             selected_features = set(selected_score.get("matched_features", []))
             
             # Price diversity (convert to rupees for comparison)
-            candidate_price_rs = candidate_price/100 if candidate_price > 10000 else candidate_price
-            selected_price_rs = selected_price/100 if selected_price > 10000 else selected_price
-            
-            if candidate_price_rs > 0 and selected_price_rs > 0:
+            # Ensure both prices are valid numbers, not None
+            if (candidate_price is not None and isinstance(candidate_price, (int, float)) and candidate_price > 0 and
+                selected_price is not None and isinstance(selected_price, (int, float)) and selected_price > 0):
+                
+                candidate_price_rs = candidate_price/100 if candidate_price > 10000 else candidate_price
+                selected_price_rs = selected_price/100 if selected_price > 10000 else selected_price
+                
                 price_diff = abs(candidate_price_rs - selected_price_rs) / min(candidate_price_rs, selected_price_rs)
                 if price_diff > 0.20:  # >20% price difference
                     return True
@@ -312,8 +316,8 @@ class MultiCardSelector:
             'summary': ""
         }
         
-        # Extract key differentiating features
-        comparison_features = ['refresh_rate', 'size', 'resolution', 'price', 'brand', 'curvature']
+        # Extract key differentiating features for gaming monitors
+        comparison_features = ['refresh_rate', 'size', 'resolution', 'panel_type', 'price', 'brand', 'curvature']
         
         for feature in comparison_features:
             values = []
@@ -348,14 +352,22 @@ class MultiCardSelector:
         """Get formatted feature value for display in comparison table."""
         
         if feature == "price":
-            price = product.get("price", 0)
-            if price > 0:
+            price = product.get("price")
+            if price is not None and isinstance(price, (int, float)) and price > 0:
                 price_rs = price/100 if price > 10000 else price
                 return f"₹{price_rs:,.0f}"
-            return "Price unavailable"
+            return "Price updating"
         
         elif feature == "brand":
-            return product.get("brand", "Unknown brand")
+            brand = product.get("brand", "")
+            if brand:
+                return brand.title()
+            # Try to extract from title
+            title = product.get("title", "").lower()
+            for brand_name in ["lg", "samsung", "acer", "msi", "asus", "dell", "aoc", "benq", "lenovo"]:
+                if brand_name in title:
+                    return brand_name.upper()
+            return "Unknown"
         
         # For technical features, check the analyzed features first
         analyzed_features = score_data.get("feature_scores", {})
@@ -363,13 +375,96 @@ class MultiCardSelector:
             product_value = analyzed_features[feature]["product_value"]
             if product_value:
                 if feature == "refresh_rate":
-                    return f"{product_value}Hz"
+                    # Extract numeric value and format
+                    import re
+                    match = re.search(r'(\d+)', str(product_value))
+                    if match:
+                        return f"{match.group(1)}Hz"
+                    return str(product_value)
                 elif feature == "size":
-                    return f"{product_value}\""
+                    # Extract numeric value and format
+                    import re
+                    match = re.search(r'(\d+(?:\.\d+)?)', str(product_value))
+                    if match:
+                        return f"{match.group(1)}\""
+                    return str(product_value)
+                elif feature == "resolution":
+                    # Standardize resolution naming
+                    res_str = str(product_value).lower()
+                    if "4k" in res_str or "2160" in res_str:
+                        return "4K UHD"
+                    elif "1440" in res_str or "qhd" in res_str:
+                        return "QHD 1440p"
+                    elif "1080" in res_str or "fhd" in res_str:
+                        return "FHD 1080p"
+                    return str(product_value)
+                elif feature == "panel_type":
+                    # Standardize panel naming
+                    panel_str = str(product_value).upper()
+                    if "IPS" in panel_str:
+                        return "IPS"
+                    elif "VA" in panel_str:
+                        return "VA"
+                    elif "TN" in panel_str:
+                        return "TN"
+                    elif "OLED" in panel_str:
+                        return "OLED"
+                    return str(product_value)
                 else:
                     return str(product_value)
         
-        # Fallback to direct product data
+        # Enhanced fallback to extract from title/product data
+        title = product.get("title", "").lower()
+        
+        if feature == "refresh_rate":
+            import re
+            # Look for refresh rate patterns in title
+            patterns = [r'(\d+)\s*hz', r'(\d+)\s*hertz', r'(\d+)hz']
+            for pattern in patterns:
+                match = re.search(pattern, title)
+                if match:
+                    return f"{match.group(1)}Hz"
+            return "60Hz (std)"
+            
+        elif feature == "size":
+            import re
+            # Look for size patterns in title
+            patterns = [r'(\d+(?:\.\d+)?)\s*inch', r'(\d+(?:\.\d+)?)\s*"', r'(\d+(?:\.\d+)?)"']
+            for pattern in patterns:
+                match = re.search(pattern, title)
+                if match:
+                    return f"{match.group(1)}\""
+            return "24\" (est)"
+            
+        elif feature == "resolution":
+            if any(term in title for term in ["4k", "uhd", "2160"]):
+                return "4K UHD"
+            elif any(term in title for term in ["qhd", "1440", "wqhd"]):
+                return "QHD 1440p"
+            elif any(term in title for term in ["fhd", "1080", "full hd"]):
+                return "FHD 1080p"
+            else:
+                return "FHD 1080p"
+                
+        elif feature == "panel_type":
+            if "ips" in title:
+                return "IPS"
+            elif "va" in title:
+                return "VA"
+            elif "tn" in title:
+                return "TN"
+            elif "oled" in title:
+                return "OLED"
+            else:
+                return "IPS (likely)"
+                
+        elif feature == "curvature":
+            if "curved" in title:
+                return "Curved"
+            else:
+                return "Flat"
+        
+        # Final fallback
         value = product.get(feature, "Not specified")
         return str(value) if value else "Not specified"
 
@@ -430,8 +525,8 @@ class MultiCardSelector:
                 product_strengths.append("High overall match")
             
             # Price positioning
-            price = product.get("price", 0)
-            if price > 0:
+            price = product.get("price")
+            if price is not None and isinstance(price, (int, float)) and price > 0:
                 price_rs = price/100 if price > 10000 else price
                 if price_rs < 20000:
                     product_strengths.append("Budget-friendly")
@@ -453,8 +548,8 @@ class MultiCardSelector:
         prices = []
         scores = []
         for product, score_data in selected_products:
-            price = product.get("price", 0)
-            if price > 0:
+            price = product.get("price")
+            if price is not None and isinstance(price, (int, float)) and price > 0:
                 price_rs = price/100 if price > 10000 else price
                 prices.append(price_rs)
                 scores.append(score_data["score"])
@@ -568,8 +663,12 @@ class MultiCardSelector:
             explanation_parts.append("Products excel in different areas")
         
         # Check for price diversity
-        prices = [p.get("price", 0) for p, _ in selected_products]
-        prices = [p/100 if p > 10000 else p for p in prices if p > 0]
+        prices = []
+        for p, _ in selected_products:
+            price = p.get("price")
+            if price is not None and isinstance(price, (int, float)) and price > 0:
+                price_rs = price/100 if price > 10000 else price
+                prices.append(price_rs)
         if len(prices) > 1:
             price_range = (max(prices) - min(prices)) / min(prices)
             if price_range > 0.25:

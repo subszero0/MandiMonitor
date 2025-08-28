@@ -160,10 +160,17 @@ class TestFeatureMatchModel:
             "technical_density": 0.1
         }) is False
         
-        # Medium confidence with technical density
+        # Medium confidence with technical density should trigger AI (reverted logic)
         assert feature_match_model._has_technical_features({
             "confidence": 0.6,
             "technical_density": 0.5
+        }) is True
+        
+        # Medium confidence with actual technical features should definitely be True
+        assert feature_match_model._has_technical_features({
+            "confidence": 0.6,
+            "technical_density": 0.5,
+            "refresh_rate": "144"
         }) is True
         
         # Empty features

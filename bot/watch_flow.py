@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import time
+from typing import Optional
 
 from sqlmodel import Session, select
 import telegram
@@ -332,6 +333,11 @@ async def get_dynamic_price_ranges(search_query: str, cached_results: list = Non
     try:
         log.info("Fetching dynamic price ranges for query: %s", search_query)
         
+        # Extract user's stated budget from query
+        user_budget = _extract_budget_from_query(search_query)
+        if user_budget:
+            log.info("Extracted user budget from query '%s': ₹%s", search_query, user_budget)
+        
         # Use provided cached results first to avoid duplicate API calls
         if cached_results:
             log.info("Using provided cached results for price extraction: %s", search_query)
@@ -470,24 +476,31 @@ async def get_dynamic_price_ranges(search_query: str, cached_results: list = Non
             end_idx = len(prices) - (len(prices) // 10)
             prices = prices[start_idx:end_idx]
         
-        # Generate price ranges based on distribution
+        # Generate price ranges based on distribution and user budget
         min_price = prices[0]
         max_price = prices[-1]
         
-        # Create 4-5 meaningful price brackets
+        # Use user budget as ceiling if provided and higher than max product price
+        effective_max_price = max_price
+        if user_budget and user_budget > max_price:
+            effective_max_price = user_budget
+            log.info("Using user budget ₹%s as ceiling (higher than max product price ₹%s)", 
+                    user_budget, max_price)
+        
+        # Create 4-5 meaningful price brackets based on effective max price
         price_ranges = []
         
-        if max_price <= 1500:
+        if effective_max_price <= 1500:
             # Low-priced items (under ₹1500) - car polish, accessories
             brackets = [300, 500, 800, 1200]
-        elif max_price <= 5000:
+        elif effective_max_price <= 5000:
             # Mid-priced items (₹1500-5000) - gadgets, tools
             brackets = [1000, 2000, 3000, 5000]
-        elif max_price <= 25000:
+        elif effective_max_price <= 25000:
             # Higher-priced items (₹5000-25000) - appliances, electronics
             brackets = [5000, 10000, 15000, 25000]
-        elif max_price <= 100000:
-            # Premium items (₹25000-100000) - phones, laptops
+        elif effective_max_price <= 100000:
+            # Premium items (₹25000-100000) - phones, laptops, monitors
             brackets = [25000, 50000, 75000, 100000]
         else:
             # Luxury items (₹100000+) - high-end electronics
@@ -529,6 +542,61 @@ def _get_default_price_ranges() -> list[tuple[str, int]]:
         ("Under ₹50k", 50000),
         ("Under ₹1L", 100000),
     ]
+
+
+def _extract_budget_from_query(query: str) -> Optional[int]:
+    """Extract budget/price constraint from natural language query.
+    
+    Args:
+    ----
+        query: User's search query (e.g., "monitor under INR 50000")
+        
+    Returns:
+    -------
+        Budget in rupees if found, None otherwise
+        
+    Examples:
+    --------
+        "monitor under INR 50000" -> 50000
+        "laptop below 75k" -> 75000
+        "phone under ₹25000" -> 25000
+    """
+    import re
+    
+    # Patterns to match budget expressions
+    patterns = [
+        r'under\s+(?:inr\s+|₹\s*)?(\d+(?:,\d{3})*(?:k|000)?)',  # "under INR 50000", "under ₹50k"
+        r'below\s+(?:inr\s+|₹\s*)?(\d+(?:,\d{3})*(?:k|000)?)',  # "below 50k"
+        r'within\s+(?:inr\s+|₹\s*)?(\d+(?:,\d{3})*(?:k|000)?)', # "within ₹50000"
+        r'budget\s+(?:of\s+)?(?:inr\s+|₹\s*)?(\d+(?:,\d{3})*(?:k|000)?)', # "budget of 50k"
+        r'max\s+(?:price\s+)?(?:inr\s+|₹\s*)?(\d+(?:,\d{3})*(?:k|000)?)', # "max price 50k"
+        r'up\s+to\s+(?:inr\s+|₹\s*)?(\d+(?:,\d{3})*(?:k|000)?)', # "up to ₹50000"
+    ]
+    
+    query_lower = query.lower()
+    
+    for pattern in patterns:
+        match = re.search(pattern, query_lower)
+        if match:
+            amount_str = match.group(1).replace(',', '')  # Remove commas
+            
+            try:
+                # Handle 'k' suffix (thousands)
+                if amount_str.endswith('k'):
+                    amount = int(float(amount_str[:-1]) * 1000)
+                elif amount_str.endswith('000') and len(amount_str) <= 6:  # e.g., "50000"
+                    amount = int(amount_str)
+                else:
+                    amount = int(amount_str)
+                
+                # Sanity check - budget should be reasonable (₹100 to ₹10L)
+                if 100 <= amount <= 1000000:
+                    return amount
+                    
+            except (ValueError, TypeError):
+                continue
+    
+    return None
 
 
 async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -880,18 +948,26 @@ async def _finalize_watch(
                             products_with_prices = [p for p in search_results if p.get("price")]
                             
                             if not products_with_prices:
-                                log.info("No price data from SearchItems, using GetItems to fetch pricing for filtering")
-                                # Enrich search results with GetItems pricing data
+                                log.info("No price data from SearchItems, using batch GetItems to fetch pricing for filtering")
+                                # Enrich search results with batch GetItems pricing data
                                 try:
-                                    from .paapi_factory import get_paapi_client
-                                    client = await get_paapi_client()
+                                    from .paapi_factory import get_items_batch
                                     
-                                    enriched_results = []
-                                    for i, product in enumerate(search_results):
-                                        asin = product.get("asin")
-                                        if asin:
-                                            try:
-                                                item_data = await client.get_item_detailed(asin, priority="high")
+                                    # Extract ASINs for batch processing
+                                    asins_to_enrich = [product.get("asin") for product in search_results if product.get("asin")]
+                                    
+                                    if asins_to_enrich:
+                                        log.info("Processing %d ASINs in batches for price enrichment", len(asins_to_enrich))
+                                        
+                                        # Use batch processing - much faster than individual calls
+                                        batch_results = await get_items_batch(asins_to_enrich, priority="high")
+                                        
+                                        # Enrich search results with batch data
+                                        enriched_results = []
+                                        for product in search_results:
+                                            asin = product.get("asin")
+                                            if asin and asin in batch_results:
+                                                item_data = batch_results[asin]
                                                 if item_data and item_data.get("price"):
                                                     # Enrich with price data
                                                     enriched_product = product.copy()
@@ -902,14 +978,14 @@ async def _finalize_watch(
                                                 else:
                                                     # Keep product without price
                                                     enriched_results.append(product)
-                                            except Exception as e:
-                                                log.debug("Failed to enrich ASIN %s: %s", asin, e)
+                                            else:
+                                                # Keep product without enrichment data
                                                 enriched_results.append(product)
-                                        else:
-                                            enriched_results.append(product)
-                                    
-                                    search_results = enriched_results
-                                    log.info("Enriched %d products with GetItems pricing data", len([p for p in search_results if p.get("price")]))
+                                        
+                                        search_results = enriched_results
+                                        log.info("Enriched %d products with GetItems pricing data", len([p for p in search_results if p.get("price")]))
+                                    else:
+                                        log.warning("No valid ASINs found for batch enrichment")
                                 
                                 except Exception as e:
                                     log.warning("Failed to enrich with GetItems data: %s", e)
@@ -1006,6 +1082,123 @@ async def _finalize_watch(
                         
                         asin = best_match.get("asin")
                         
+                        # Create watch record first (needed for multi-card experience)
+                        watch = Watch(
+                            user_id=user.id,
+                            asin=asin,
+                            keywords=watch_data["keywords"],
+                            brand=watch_data.get("brand"),
+                            max_price=watch_data.get("max_price"),
+                            min_discount=watch_data.get("min_discount"),
+                            mode=watch_data.get("mode", "daily"),  # Use selected mode or default to daily
+                        )
+
+                        session.add(watch)
+                        session.commit()
+                        session.refresh(watch)
+                        
+                        log.info("Created watch %d for user %s", watch.id, user_id)
+                        
+                        # Check if we should use multi-card experience (Phase 6 enhancement)
+                        use_multi_card = False
+                        if best_match and len(search_results) >= 3:
+                            # Check if multi-card would provide value
+                            ai_metadata = best_match.get("_ai_metadata", {})
+                            ai_confidence = ai_metadata.get("ai_confidence", 0) if ai_metadata else 0
+                            
+                            # Use multi-card if:
+                            # 1. AI was used and confidence is moderate (not too high, indicating competition)
+                            # 2. OR no AI was used but we have multiple good products 
+                            use_ai_multicard = (ai_metadata and ai_confidence < 0.9)
+                            use_general_multicard = (not ai_metadata and len(search_results) >= 5)
+                            
+                            if use_ai_multicard or use_general_multicard:
+                                use_multi_card = True
+                                log.info("Using multi-card experience: %d products, AI confidence: %.3f", 
+                                        len(search_results), ai_confidence)
+
+                        if use_multi_card:
+                            # Use Phase 6 multi-card experience
+                            try:
+                                from .ai.enhanced_product_selection import EnhancedFeatureMatchModel
+                                from .ai.enhanced_carousel import build_product_carousel
+                                
+                                enhanced_model = EnhancedFeatureMatchModel()
+                                selection_result = await enhanced_model.select_products(
+                                    products=search_results[:5],  # Top 5 candidates
+                                    user_query=watch_data["keywords"],
+                                    user_preferences=watch_data,
+                                    enable_multi_card=True
+                                )
+                                
+                                if selection_result.get("presentation_mode") != "single":
+                                    # Send multi-card carousel and skip single card logic
+                                    cards = build_product_carousel(
+                                        products=selection_result["products"],
+                                        comparison_table=selection_result["comparison_table"],
+                                        selection_reason=selection_result["selection_reason"],
+                                        watch_id=watch.id
+                                    )
+                                    
+                                    # Send intro message
+                                    intro_msg = f"🤖 **AI Found {len(selection_result['products'])} Great Options**\n\n"
+                                    intro_msg += selection_result["selection_reason"]
+                                    intro_msg += "\n\n👆 Tap any product to create your watch!"
+                                    
+                                    if update.callback_query:
+                                        await update.callback_query.edit_message_text(intro_msg, parse_mode="Markdown")
+                                    else:
+                                        await update.effective_message.reply_text(intro_msg, parse_mode="Markdown")
+                                    
+                                    # Send product cards
+                                    for card in cards:
+                                        if card["type"] == "product_card":
+                                            # Validate image URL before sending
+                                            image_url = card.get("image", "").strip()
+                                            if image_url and image_url.startswith(('http://', 'https://')):
+                                                try:
+                                                    await update.effective_message.reply_photo(
+                                                        photo=image_url,
+                                                        caption=card["caption"],
+                                                        reply_markup=card["keyboard"],
+                                                        parse_mode="Markdown"
+                                                    )
+                                                except telegram.error.BadRequest as img_error:
+                                                    log.warning("Failed to send image %s: %s", image_url, img_error)
+                                                    # Fallback to text message
+                                                    await update.effective_message.reply_text(
+                                                        card["caption"],
+                                                        reply_markup=card["keyboard"],
+                                                        parse_mode="Markdown"
+                                                    )
+                                            else:
+                                                log.warning("Invalid or missing image URL for product card: %s", image_url)
+                                                # Send as text message when no valid image
+                                                await update.effective_message.reply_text(
+                                                    card["caption"],
+                                                    reply_markup=card["keyboard"],
+                                                    parse_mode="Markdown"
+                                                )
+                                        else:
+                                            await update.effective_message.reply_text(
+                                                card["caption"],
+                                                reply_markup=card.get("keyboard"),
+                                                parse_mode="Markdown"
+                                            )
+                                    
+                                    log.info("Successfully sent multi-card carousel with %d products to user %s", 
+                                            len(selection_result["products"]), user_id)
+                                    
+                                    # Update final message to indicate success
+                                    success_msg = "✅ **Multi-card experience sent successfully!**"
+                                    log.info("Successfully created watch and sent confirmation to user %s", user_id)
+                                    return
+                                    
+                            except Exception as multi_card_error:
+                                log.warning("Multi-card experience failed, falling back to single card: %s", multi_card_error)
+                                log.debug("Multi-card error details", exc_info=True)
+                                # Continue to single card fallback below
+                        
                         # Log AI selection performance for monitoring
                         selection_metadata = {}
                         model_used = "UltimateFallback"
@@ -1064,21 +1257,22 @@ async def _finalize_watch(
                     log.warning("Product search failed for '%s': %s", watch_data["keywords"], search_error)
                     # Continue without ASIN - watch will still be created for future searches
 
-            # Create watch record
-            watch = Watch(
-                user_id=user.id,
-                asin=asin,
-                keywords=watch_data["keywords"],
-                brand=watch_data.get("brand"),
-                max_price=watch_data.get("max_price"),
-                min_discount=watch_data.get("min_discount"),
-                mode=watch_data.get("mode", "daily"),  # Use selected mode or default to daily
-            )
+            # Create watch record (only if not already created in search logic above)
+            if 'watch' not in locals():
+                watch = Watch(
+                    user_id=user.id,
+                    asin=asin,
+                    keywords=watch_data["keywords"],
+                    brand=watch_data.get("brand"),
+                    max_price=watch_data.get("max_price"),
+                    min_discount=watch_data.get("min_discount"),
+                    mode=watch_data.get("mode", "daily"),  # Use selected mode or default to daily
+                )
 
-            session.add(watch)
-            session.commit()
-            session.refresh(watch)
-            log.info("Created watch %s for user %s", watch.id, user_id)
+                session.add(watch)
+                session.commit()
+                session.refresh(watch)
+                log.info("Created watch %s for user %s", watch.id, user_id)
 
             # Schedule the watch for monitoring
             try:
@@ -1125,7 +1319,13 @@ async def _finalize_watch(
                     log.info("Trying enhanced PA-API for ASIN %s", asin)
                     item_data = await get_item_detailed(asin, priority="high")
                     title = item_data.get("title", watch_data["keywords"])
-                    image_url = item_data.get("images", {}).get("large", "https://m.media-amazon.com/images/I/81.png")
+                    # Handle both image_url and images structure
+                    if item_data.get("image_url"):
+                        image_url = item_data["image_url"]
+                    elif item_data.get("images", {}).get("large"):
+                        image_url = item_data["images"]["large"]
+                    else:
+                        image_url = "https://m.media-amazon.com/images/I/81.png"
                     price = item_data.get("price")
                     log.info("Enhanced PA-API succeeded for ASIN %s", asin)
                 except Exception as e:

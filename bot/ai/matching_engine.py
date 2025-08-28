@@ -144,7 +144,19 @@ class FeatureMatchingEngine:
                     total_weight += penalty_weight
         
         # Calculate final score
-        final_score = total_score / total_weight if total_weight > 0 else 0.0
+        if total_weight > 0:
+            final_score = total_score / total_weight
+        else:
+            # If no specific user requirements, use product quality scoring
+            # This allows AI to rank products by their technical specifications
+            final_score = self._calculate_product_quality_score(product_features, category)
+            
+            # Log detailed information for debugging
+            log.debug(
+                "Using product quality scoring: features=%s, score=%.3f",
+                list(product_features.keys()) if product_features else "none",
+                final_score
+            )
         
         # Generate explanation
         rationale = self._generate_rationale(
@@ -650,3 +662,135 @@ class FeatureMatchingEngine:
         )
         
         return result
+    
+    def _calculate_product_quality_score(self, product_features: Dict[str, Any], category: str) -> float:
+        """
+        Calculate product quality score when no specific user requirements exist.
+        
+        This allows the AI to rank products by their technical specifications
+        and help users discover good options even with simple queries.
+        """
+        if not product_features:
+            log.debug("No product features available for quality scoring")
+            return 0.1  # Minimal score for products with no features
+        
+        weights = get_feature_weights(category)
+        quality_score = 0.0
+        total_weight = 0.0
+        scored_features = {}
+        
+        # Score based on technical feature quality
+        for feature_name, weight in weights.items():
+            if feature_name in product_features:
+                feature_value = product_features[feature_name]
+                
+                # Handle structured feature data format
+                if isinstance(feature_value, dict) and "value" in feature_value:
+                    actual_value = feature_value["value"]
+                else:
+                    actual_value = feature_value
+                
+                # Calculate quality score for different feature types
+                feature_quality = self._calculate_feature_quality(feature_name, actual_value)
+                quality_score += feature_quality * weight
+                total_weight += weight
+                scored_features[feature_name] = {
+                    "value": actual_value,
+                    "quality": feature_quality,
+                    "weight": weight,
+                    "contribution": feature_quality * weight
+                }
+        
+        # Normalize score and add base quality for having features
+        base_score = min(len(product_features) * 0.05, 0.3)  # Up to 0.3 for having many features
+        normalized_score = quality_score / total_weight if total_weight > 0 else 0.0
+        
+        final_score = base_score + (normalized_score * 0.7)  # 30% base + 70% weighted quality
+        
+        # Debug logging
+        log.debug(
+            "Quality scoring: base=%.3f, normalized=%.3f, final=%.3f, features=%s",
+            base_score, normalized_score, final_score, scored_features
+        )
+        
+        return min(final_score, 1.0)  # Cap at 1.0
+    
+    def _calculate_feature_quality(self, feature_name: str, feature_value: Any) -> float:
+        """Calculate quality score for a specific feature."""
+        if not feature_value:
+            return 0.0
+        
+        try:
+            value_str = str(feature_value).lower().strip()
+            
+            if feature_name == "refresh_rate":
+                # Higher refresh rates are better for gaming
+                # Extract numeric value
+                import re
+                match = re.search(r'(\d+)', value_str)
+                if match:
+                    rate = int(match.group(1))
+                    if rate >= 240: return 1.0
+                    elif rate >= 165: return 0.9
+                    elif rate >= 144: return 0.8
+                    elif rate >= 120: return 0.6
+                    elif rate >= 75: return 0.4
+                    else: return 0.2
+                return 0.2  # Default for unmatched
+                
+            elif feature_name == "resolution":
+                # Higher resolutions are generally better
+                if any(x in value_str for x in ["4k", "uhd", "2160p"]): return 1.0
+                elif any(x in value_str for x in ["1440p", "qhd", "wqhd"]): return 0.8
+                elif any(x in value_str for x in ["1080p", "fhd", "full hd"]): return 0.6
+                elif any(x in value_str for x in ["720p", "hd"]): return 0.4
+                # Try to match pixel dimensions
+                import re
+                pixel_match = re.search(r'(\d+)\s*x\s*(\d+)', value_str)
+                if pixel_match:
+                    width = int(pixel_match.group(1))
+                    if width >= 3840: return 1.0
+                    elif width >= 2560: return 0.8
+                    elif width >= 1920: return 0.6
+                    else: return 0.4
+                return 0.4  # Default for unmatched
+                
+            elif feature_name == "size":
+                # Moderate sizes are preferred (24-32 inches)
+                import re
+                size_match = re.search(r'(\d+(?:\.\d+)?)', value_str)
+                if size_match:
+                    size = float(size_match.group(1))
+                    # Handle cm to inch conversion
+                    if size > 50:  # Likely cm
+                        size = size / 2.54
+                    if 27 <= size <= 32: return 1.0
+                    elif 24 <= size < 27: return 0.8
+                    elif 21 <= size < 24: return 0.6
+                    else: return 0.4
+                return 0.4  # Default for unmatched
+                
+            elif feature_name == "curvature":
+                # Curved is a feature preference
+                return 0.7 if "curved" in value_str else 0.5
+                
+            elif feature_name == "panel_type":
+                # IPS > VA > TN for general use
+                if "ips" in value_str: return 1.0
+                elif "va" in value_str: return 0.7
+                elif "tn" in value_str: return 0.5
+                elif any(x in value_str for x in ["oled", "qled"]): return 0.9
+                else: return 0.6
+                
+            elif feature_name == "brand":
+                # All brands get equal quality score (preference is subjective)
+                known_brands = ["samsung", "lg", "dell", "asus", "acer", "msi", "benq", "viewsonic", "aoc", "hp", "lenovo"]
+                return 0.8 if any(brand in value_str for brand in known_brands) else 0.5
+                
+            else:
+                # Default quality for other features that have values
+                return 0.6
+                
+        except (ValueError, TypeError) as e:
+            log.debug(f"Error calculating feature quality for {feature_name}={feature_value}: {e}")
+            return 0.3  # Some quality for unparseable features
