@@ -64,10 +64,10 @@ AI_GETITEMS_RESOURCES = [
     GetItemsResource.ITEMINFO_PRODUCTINFO,            # Color, size, dimensions
     
     # Enhanced pricing and availability
-    GetItemsResource.OFFERS_LISTINGS_PRICE,           # Current price
-    GetItemsResource.OFFERS_LISTINGS_AVAILABILITY,    # Stock status
-    GetItemsResource.OFFERS_LISTINGS_CONDITION,       # Product condition
-    GetItemsResource.OFFERS_LISTINGS_DELIVERYINFO,    # Prime, shipping info
+    GetItemsResource.OFFERSV2_LISTINGS_PRICE,           # Current price
+    GetItemsResource.OFFERSV2_LISTINGS_AVAILABILITY,    # Stock status
+    GetItemsResource.OFFERSV2_LISTINGS_CONDITION,       # Product condition
+    GetItemsResource.OFFERSV2_LISTINGS_MERCHANTINFO,    # Merchant and delivery info
     
     # Media and reviews
     GetItemsResource.IMAGES_PRIMARY_LARGE,            # High-resolution images
@@ -88,7 +88,7 @@ DEFAULT_SEARCH_RESOURCES = [
 
 DEFAULT_GETITEMS_RESOURCES = [
     GetItemsResource.ITEMINFO_TITLE,
-    GetItemsResource.OFFERS_LISTINGS_PRICE,
+    GetItemsResource.OFFERSV2_LISTINGS_PRICE,
     GetItemsResource.IMAGES_PRIMARY_LARGE,
     GetItemsResource.CUSTOMERREVIEWS_STARRATING,
 ]

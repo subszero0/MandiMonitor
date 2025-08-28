@@ -318,8 +318,12 @@ class TestModelSelectionLogic:
         model = get_selection_model("monitor", 5)
         assert isinstance(model, PopularityModel)
         
-        # Few products should use RandomSelectionModel
+        # Two products should use PopularityModel (Phase R2: lowered thresholds)
         model = get_selection_model("any query", 2)
+        assert isinstance(model, PopularityModel)
+        
+        # Only single product should use RandomSelectionModel
+        model = get_selection_model("any query", 1)
         assert isinstance(model, RandomSelectionModel)
 
     @pytest.mark.asyncio
