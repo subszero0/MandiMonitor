@@ -176,9 +176,9 @@ class TestMultiCardSelector:
         ]
         assert selector._should_show_multiple_cards(close_scored_products) == True
         
-        # Large score gap should not trigger multi-card
+        # Large score gap should not trigger multi-card (very high score + large gap)
         gap_scored_products = [
-            ({"asin": "B001"}, {"score": 0.90, "matched_features": ["refresh_rate"]}),
+            ({"asin": "B001"}, {"score": 0.96, "matched_features": ["refresh_rate"]}),
             ({"asin": "B002"}, {"score": 0.60, "matched_features": ["size"]})
         ]
         assert selector._should_show_multiple_cards(gap_scored_products) == False

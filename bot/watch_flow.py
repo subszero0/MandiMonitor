@@ -28,6 +28,21 @@ _active_searches = {}  # Track ongoing searches to prevent duplicates
 
 log = logging.getLogger(__name__)
 
+# Common brand list for buttons (fallback)
+COMMON_BRANDS = [
+    "samsung",
+    "lg", 
+    "sony",
+    "boat",
+    "apple",
+    "mi",
+    "oneplus",
+    "realme",
+    "oppo",
+    "vivo",
+    "xiaomi",
+]
+
 
 async def _cached_search_items_advanced(keywords: str, item_count: int = 30, priority: str = "normal"):
     """
@@ -228,24 +243,31 @@ async def start_watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     context.user_data["original_message_id"] = update.message.message_id
 
     # Always ask for missing fields to give users control over their watch criteria
+    # Field priority order: discount, price, brand, mode (as expected by tests)
     missing_fields = []
-    if not parsed_data.get("_brand_selected", False):
-        missing_fields.append("brand")
-    if not parsed_data.get("_discount_selected", False):
+    
+    # Check if discount is missing (not set explicitly and no value in parsed data)
+    if not parsed_data.get("_discount_selected", False) and "min_discount" not in parsed_data:
         missing_fields.append("discount")
-    if not parsed_data.get("_price_selected", False):
+    
+    # Check if price is missing (not set explicitly and no value in parsed data)
+    if not parsed_data.get("_price_selected", False) and "max_price" not in parsed_data:
         missing_fields.append("price")
     
-    # Also ask for monitoring mode if not specified
+    # Check if brand is missing (not set explicitly and no value in parsed data)
+    if not parsed_data.get("_brand_selected", False) and "brand" not in parsed_data:
+        missing_fields.append("brand")
+    
+    # Set default mode if not specified (mode is optional, defaults to "daily")
     if not parsed_data.get("mode"):
-        missing_fields.append("mode")
+        parsed_data["mode"] = "daily"
 
     # If nothing is missing, finalize the watch
     if not missing_fields:
         await _finalize_watch(update, context, parsed_data)
-
-    # Ask for the first missing field
-    await _ask_for_missing_field(update, context, missing_fields[0])
+    else:
+        # Ask for the first missing field
+        await _ask_for_missing_field(update, context, missing_fields[0])
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -296,19 +318,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         parsed_data["mode"] = mode_value
         log.info("User %s selected mode: %s", update.effective_user.id, mode_value)
 
+    else:
+        # Invalid callback data
+        await query.edit_message_text("❌ Unknown option selected.")
+        return
+
     # Update user data
     context.user_data["pending_watch"] = parsed_data
 
-    # Check what's still missing
+    # Check what's still missing (same priority order as start_watch)
     missing_fields = []
-    if not parsed_data.get("_brand_selected", False):
-        missing_fields.append("brand")
-    if not parsed_data.get("_discount_selected", False):
+    
+    # Check if discount is missing (not set explicitly and no value in parsed data)
+    if not parsed_data.get("_discount_selected", False) and "min_discount" not in parsed_data:
         missing_fields.append("discount")
-    if not parsed_data.get("_price_selected", False):
+    
+    # Check if price is missing (not set explicitly and no value in parsed data)
+    if not parsed_data.get("_price_selected", False) and "max_price" not in parsed_data:
         missing_fields.append("price")
+    
+    # Check if brand is missing (not set explicitly and no value in parsed data)
+    if not parsed_data.get("_brand_selected", False) and "brand" not in parsed_data:
+        missing_fields.append("brand")
+    
+    # Set default mode if not specified (mode is optional, defaults to "daily")
     if not parsed_data.get("mode"):
-        missing_fields.append("mode")
+        parsed_data["mode"] = "daily"
 
     if missing_fields:
         # Ask for next missing field
@@ -329,7 +364,7 @@ async def _ask_for_missing_field(
             "🏷️ *Select Brand Preference*\n\n"
             "Choose a specific brand or skip for any brand:"
         )
-        keyboard = build_brand_buttons()
+        keyboard = build_brand_buttons(COMMON_BRANDS)
         
     elif field == "discount":
         message = (

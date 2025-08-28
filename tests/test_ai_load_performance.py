@@ -196,7 +196,7 @@ class TestAILoadPerformance:
         Test multi-card selector performance under load.
         Target: <300ms for multi-card generation, stable under concurrent load.
         """
-        selector = MultiCardSelector()
+        from bot.watch_flow import smart_product_selection_with_ai
         concurrent_multi_card_requests = 20
         
         async def multi_card_request(request_id: int):
@@ -205,10 +205,11 @@ class TestAILoadPerformance:
             start_time = time.time()
             
             try:
-                result = await selector.select_products(
+                result = await smart_product_selection_with_ai(
                     products=load_test_products[:8],  # Limit for performance
                     user_query=query,
-                    user_preferences={"budget_flexible": True}
+                    user_preferences={"budget_flexible": True},
+                    enable_multi_card=True
                 )
                 processing_time = (time.time() - start_time) * 1000
                 

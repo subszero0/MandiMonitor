@@ -22,13 +22,16 @@ from bot.ai_performance_monitor import (
 )
 
 
+@pytest.fixture
+def monitor():
+    """Create a fresh AIPerformanceMonitor instance for all tests."""
+    return AIPerformanceMonitor()
+
+
 class TestAIPerformanceMonitor:
     """Test the AIPerformanceMonitor class."""
 
-    @pytest.fixture
-    def monitor(self):
-        """Create a fresh AIPerformanceMonitor instance."""
-        return AIPerformanceMonitor()
+
 
     def test_monitor_initialization(self, monitor):
         """Test monitor initializes with correct defaults."""

@@ -527,10 +527,8 @@ async def smart_product_selection(
         # Log primary failure
         log_ai_fallback(
             primary_model=model_name,
-            user_query=user_query,
-            product_count=product_count,
-            failure_reason=str(e),
-            fallback_type="popularity"
+            fallback_model="PopularityModel",
+            reason=str(e)
         )
     
     # R5.1: Fallback to Popularity if primary was AI
@@ -568,11 +566,9 @@ async def smart_product_selection(
             
             # R5.1: Log fallback failure
             log_ai_fallback(
-                primary_model=model_name,
-                user_query=user_query,
-                product_count=product_count,
-                failure_reason=f"PopularityModel failed: {e}",
-                fallback_type="random"
+                primary_model="PopularityModel",
+                fallback_model="RandomSelectionModel",
+                reason=f"PopularityModel failed: {e}"
             )
     
     # R5.1: Final fallback to Random with monitoring
@@ -609,11 +605,9 @@ async def smart_product_selection(
         
         # R5.1: Log complete system failure
         log_ai_fallback(
-            primary_model=model_name,
-            user_query=user_query,
-            product_count=product_count,
-            failure_reason=f"All models failed: {e}",
-            fallback_type="ultimate"
+            primary_model="RandomSelectionModel",
+            fallback_model="UltimateFallback",
+            reason=f"All models failed: {e}"
         )
     
     # R5.1: Ultimate fallback - return first product with monitoring

@@ -685,10 +685,9 @@ class MultiCardSelector:
     def _get_all_features(self, scored_products: List[Tuple[Dict, Dict]]) -> set:
         """Get all unique features across products."""
         all_features = set()
-        for _, score_data in scored_products:
+        for product, score_data in scored_products:
             all_features.update(score_data.get("matched_features", []))
             # Also check product features
-            product, _ = _
             title = product.get("title", "").lower()
             # Extract additional features from title
             if "gaming" in title:
