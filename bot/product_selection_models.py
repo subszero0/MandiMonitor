@@ -397,6 +397,9 @@ def get_selection_model(user_query: str, product_count: int) -> BaseProductSelec
     """
     Determine which model to use based on query complexity and product count.
     
+    FIXED: More intelligent model selection based on query analysis.
+    Lowered thresholds to enable AI more frequently as per Phase R2 roadmap.
+    
     Args:
     ----
         user_query: User's search query
@@ -406,17 +409,22 @@ def get_selection_model(user_query: str, product_count: int) -> BaseProductSelec
     -------
         Appropriate product selection model
     """
-    # Use Feature Match AI for complex queries with sufficient products
-    if product_count >= 5 and user_query and len(user_query.split()) >= 3:
-        # Try AI first, will fallback internally if not suitable
+    # Use has_technical_features for better AI detection
+    has_tech_features = has_technical_features(user_query)
+    
+    # Use Feature Match AI for technical queries with sufficient products  
+    if product_count >= 3 and has_tech_features:  # Lowered from 5 to 3
+        log.info(f"Using FeatureMatchModel: {product_count} products, tech_features={has_tech_features}")
         return FeatureMatchModel()
     
     # Use Popularity for moderate datasets
-    elif product_count >= 3:
+    elif product_count >= 2:  # Lowered from 3 to 2
+        log.info(f"Using PopularityModel: {product_count} products")
         return PopularityModel()
     
-    # Random selection for small datasets
+    # Random selection only for single products
     else:
+        log.info(f"Using RandomSelectionModel: {product_count} products")
         return RandomSelectionModel()
 
 
@@ -426,9 +434,9 @@ async def smart_product_selection(
     **kwargs
 ) -> Optional[Dict]:
     """
-    High-level function for intelligent product selection with fallback chain.
+    ENHANCED: Better logging and decision transparency.
     
-    This implements the complete fallback chain:
+    High-level function for intelligent product selection with fallback chain:
     Feature Match AI → Popularity → Random
     
     Args:
@@ -442,43 +450,53 @@ async def smart_product_selection(
         Selected product with selection metadata
     """
     if not products:
-        log.warning("No products available for selection")
+        log.warning("smart_product_selection: No products available")
         return None
     
-    # Try primary model
-    primary_model = get_selection_model(user_query, len(products))
+    # Log selection decision process
+    product_count = len(products)
+    has_tech = has_technical_features(user_query)
+    
+    log.info(f"SELECTION_DECISION: query='{user_query}', products={product_count}, has_tech={has_tech}")
+    
+    # Get primary model with detailed logging
+    primary_model = get_selection_model(user_query, product_count)
+    
+    log.info(f"PRIMARY_MODEL: {primary_model.__class__.__name__}")
     
     try:
         result = await primary_model.select_product(products, user_query, **kwargs)
         if result:
-            log.info(f"Primary model {primary_model.model_name} succeeded")
+            log.info(f"PRIMARY_SUCCESS: {primary_model.model_name} selected product {result.get('asin', 'unknown')}")
             return result
     except Exception as e:
-        log.warning(f"Primary model {primary_model.model_name} failed: {e}")
+        log.warning(f"PRIMARY_FAILURE: {primary_model.model_name} failed: {e}")
     
     # Fallback to Popularity if primary was AI
     if hasattr(primary_model, 'model_name') and primary_model.model_name == "FeatureMatchModel":
         try:
+            log.info("FALLBACK_ATTEMPT: Trying PopularityModel after AI failure")
             popularity_model = PopularityModel()
             result = await popularity_model.select_product(products, user_query, **kwargs)
             if result:
-                log.info("Fallback to PopularityModel succeeded")
+                log.info(f"FALLBACK_SUCCESS: PopularityModel selected product {result.get('asin', 'unknown')}")
                 return result
         except Exception as e:
-            log.warning(f"PopularityModel fallback failed: {e}")
+            log.warning(f"FALLBACK_FAILURE: PopularityModel failed: {e}")
     
     # Final fallback to Random
     try:
+        log.info("FINAL_FALLBACK: Trying RandomSelectionModel")
         random_model = RandomSelectionModel()
         result = await random_model.select_product(products, user_query, **kwargs)
         if result:
-            log.info("Final fallback to RandomSelectionModel succeeded")
+            log.info(f"FINAL_SUCCESS: RandomSelectionModel selected product {result.get('asin', 'unknown')}")
             return result
     except Exception as e:
-        log.error(f"All selection models failed: {e}")
+        log.error(f"FINAL_FAILURE: All selection models failed: {e}")
     
     # Ultimate fallback - return first product
-    log.warning("All models failed, returning first product")
+    log.warning("ULTIMATE_FALLBACK: All models failed, returning first product")
     fallback_product = products[0].copy()
     fallback_product["_fallback_metadata"] = {
         "fallback_selection": True,
@@ -491,27 +509,39 @@ async def smart_product_selection(
 
 def has_technical_features(query: str) -> bool:
     """
-    Quick classifier to determine if a query has technical features.
+    ENHANCED: Better technical feature detection.
     
-    This is used to decide whether to attempt AI-powered selection.
+    This improved classifier determines if a query has technical features
+    by analyzing multiple indicators and using more comprehensive patterns.
     """
     if not query or not query.strip():
         return False
     
     query_lower = query.lower()
     
-    # Technical indicators
+    # Comprehensive technical indicators
     technical_terms = [
-        "hz", "fps", "hertz", "inch", "cm", "4k", "1440p", "1080p", 
-        "curved", "flat", "ips", "va", "tn", "oled", "gaming"
+        # Display specs
+        "hz", "fps", "hertz", "inch", "cm", "4k", "1440p", "1080p", "uhd", "qhd", "fhd",
+        # Display features  
+        "curved", "flat", "ips", "va", "tn", "oled", "qled",
+        # Gaming terms
+        "gaming", "monitor", "display", "screen",
+        # Tech brands (often indicate technical searches)
+        "samsung", "lg", "dell", "asus", "acer", "msi", "benq"
     ]
     
-    # Check for numeric values (sizes, refresh rates)
+    # Numeric indicators (sizes, refresh rates, resolutions)
     import re
     has_numbers = bool(re.search(r'\d+', query))
     
-    # Check for technical terms
-    has_tech_terms = any(term in query_lower for term in technical_terms)
+    # Technical terms count
+    tech_term_count = sum(1 for term in technical_terms if term in query_lower)
     
-    # Must have either numbers OR tech terms for technical classification
-    return has_numbers or has_tech_terms
+    # Decision logic: Either numbers OR multiple tech terms
+    if has_numbers and tech_term_count >= 1:
+        return True
+    elif tech_term_count >= 2:  # Multiple tech terms without numbers
+        return True
+    
+    return False

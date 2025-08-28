@@ -29,6 +29,9 @@ from .paapi_resource_manager import get_resource_manager
 
 log = getLogger(__name__)
 
+# Feature flag for AI integration
+ENABLE_AI_ANALYSIS = getattr(settings, 'ENABLE_AI_ANALYSIS', True)
+
 
 class OfficialPaapiClient:
     """Official Amazon PA-API SDK client wrapper.
@@ -92,9 +95,10 @@ class OfficialPaapiClient:
             raise
 
     async def get_items_batch(
-        self, asins: List[str], resources: Optional[List[str]] = None, priority: str = "normal"
+        self, asins: List[str], resources: Optional[List[str]] = None, priority: str = "normal", 
+        enable_ai_analysis: Optional[bool] = None
     ) -> Dict[str, Dict]:
-        """Get comprehensive product information for multiple ASINs in batches.
+        """Get comprehensive product information for multiple ASINs in batches with AI analysis.
 
         PA-API supports up to 10 ASINs per GetItems request, this method handles batching
         automatically and significantly reduces API calls and rate limiting delays.
@@ -104,10 +108,11 @@ class OfficialPaapiClient:
             asins: List of Amazon Standard Identification Numbers (max recommended: 50)
             resources: List of PA-API resources to fetch (ignored for now, using defaults)
             priority: Request priority for rate limiting
+            enable_ai_analysis: Whether to use AI-enhanced format (None=auto-detect)
 
         Returns:
         -------
-            Dict mapping ASIN to product information dict
+            Dict mapping ASIN to product information dict (AI-compatible if enabled)
             
         Raises:
         ------
@@ -118,6 +123,29 @@ class OfficialPaapiClient:
             
         # Remove duplicates while preserving order
         unique_asins = list(dict.fromkeys(asins))
+        
+        # Determine AI analysis setting
+        use_ai = enable_ai_analysis if enable_ai_analysis is not None else ENABLE_AI_ANALYSIS
+        
+        # If AI analysis is enabled, use the AI bridge
+        if use_ai:
+            try:
+                from .paapi_ai_bridge import get_items_with_ai_analysis
+                
+                ai_results = await get_items_with_ai_analysis(
+                    asins=unique_asins,
+                    enable_ai_analysis=True,
+                    priority=priority
+                )
+                
+                if ai_results:
+                    log.info(f"AI GetItems returned {len(ai_results)} products for {len(unique_asins)} ASINs")
+                    return ai_results
+                else:
+                    log.warning("AI GetItems returned no results, falling back to standard method")
+                    
+            except Exception as e:
+                log.warning(f"AI GetItems failed, falling back to standard method: {e}")
         
         # PA-API supports max 10 ASINs per GetItems request
         batch_size = 10
@@ -376,8 +404,9 @@ class OfficialPaapiClient:
         sort_by: Optional[str] = None,
         browse_node_id: Optional[int] = None,
         priority: str = "normal",
+        enable_ai_analysis: Optional[bool] = None,
     ) -> List[Dict]:
-        """Advanced product search using official SDK.
+        """Advanced product search using official SDK with optional AI analysis.
 
         Args:
         ----
@@ -396,10 +425,11 @@ class OfficialPaapiClient:
             sort_by: Sort criteria (ignored for now)
             browse_node_id: Specific category ID (ignored for now)
             priority: Request priority for rate limiting
+            enable_ai_analysis: Whether to use AI-enhanced resources (None=auto-detect)
 
         Returns:
         -------
-            List of product dictionaries
+            List of product dictionaries (AI-compatible if enabled)
 
         Raises:
         ------
@@ -408,6 +438,42 @@ class OfficialPaapiClient:
         if not keywords and not title and not brand:
             log.warning("Search requires at least keywords, title, or brand")
             return []
+
+        # Determine AI analysis setting
+        use_ai = enable_ai_analysis if enable_ai_analysis is not None else ENABLE_AI_ANALYSIS
+        
+        # If AI analysis is enabled, use the AI bridge
+        if use_ai:
+            try:
+                from .paapi_ai_bridge import search_products_with_ai_analysis
+                
+                # Combine search terms for AI bridge
+                search_terms = []
+                if keywords:
+                    search_terms.append(keywords)
+                if title:
+                    search_terms.append(title)
+                if brand:
+                    search_terms.append(brand)
+                
+                final_keywords = " ".join(search_terms)
+                
+                ai_result = await search_products_with_ai_analysis(
+                    keywords=final_keywords,
+                    search_index=search_index,
+                    item_count=min(item_count, 10),  # AI bridge handles 1 page at a time
+                    enable_ai_analysis=True,
+                    priority=priority
+                )
+                
+                if ai_result["products"]:
+                    log.info(f"AI search returned {len(ai_result['products'])} products in {ai_result['processing_time_ms']:.1f}ms")
+                    return ai_result["products"]
+                else:
+                    log.warning("AI search returned no results, falling back to standard search")
+                    
+            except Exception as e:
+                log.warning(f"AI search failed, falling back to standard search: {e}")
 
         await acquire_api_permission(priority)
 
