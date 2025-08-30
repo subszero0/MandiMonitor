@@ -78,7 +78,7 @@ class AIPerformanceMonitor:
                 "product_count": product_count,
                 "success": success,
                 "latency_ms": latency,
-                "confidence": selection_metadata.get("ai_confidence", 0),
+                "confidence": selection_metadata.get("ai_score", 0),
                 "matched_features": len(selection_metadata.get("matched_features", [])),
                 "query_hash": hash(user_query) % 10000  # For privacy
             }
@@ -93,11 +93,11 @@ class AIPerformanceMonitor:
                 )
             
             if model_name == "FeatureMatchModel":
-                confidence = selection_metadata.get("ai_confidence", 1.0)
-                if confidence < self.confidence_threshold:
+                score = selection_metadata.get("ai_score", 0)
+                if score < self.confidence_threshold:
                     log.warning(
-                        "AI_PERFORMANCE: Low confidence selection - %.3f (threshold: %.3f)",
-                        confidence, self.confidence_threshold
+                        "AI_PERFORMANCE: Low score selection - %.3f (threshold: %.3f)",
+                        score, self.confidence_threshold
                     )
     
     def log_fallback_event(self, primary_model: str, fallback_model: str, reason: str):

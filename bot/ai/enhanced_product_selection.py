@@ -79,21 +79,32 @@ class EnhancedFeatureMatchModel:
 
     def _should_use_multi_card(self, user_features: Dict, products: List[Dict]) -> bool:
         """Determine if multi-card selection should be used."""
-        
-        # Need sufficient technical features
-        technical_features = [k for k in user_features.keys() if k not in ['confidence', 'processing_time_ms', 'technical_query']]
-        if len(technical_features) < 2:
-            return False
-        
+
+        # Enhanced: More permissive conditions for multi-card eligibility
         # Need sufficient products
         if len(products) < 3:
             return False
-        
-        # Check technical density
-        technical_density = user_features.get('technical_density', 0)
-        if technical_density < 0.3:  # Less than 30% technical words
-            return False
-        
+
+        # If we have user features, use them for decision
+        if user_features:
+            # Need at least 1 technical feature (lowered from 2)
+            technical_features = [k for k in user_features.keys() if k not in ['confidence', 'processing_time_ms', 'technical_query']]
+            if len(technical_features) < 1:
+                log.debug(f"Only {len(technical_features)} technical features found, checking other indicators")
+
+            # Check technical density (lowered from 0.3 to 0.2)
+            technical_density = user_features.get('technical_density', 0)
+            if technical_density >= 0.2:  # At least 20% technical words
+                return True
+
+            # Check confidence level (lowered from 0.3 to 0.2)
+            confidence = user_features.get('confidence', 0)
+            if confidence >= 0.2:
+                return True
+
+        # Fallback: If no user features but we have sufficient products,
+        # assume it's worth trying multi-card (will fallback gracefully if needed)
+        log.debug("No user features extracted, using fallback multi-card logic")
         return True
 
     async def _multi_card_selection(

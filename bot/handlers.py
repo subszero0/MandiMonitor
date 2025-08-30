@@ -454,6 +454,206 @@ async def click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.answer("❌ Unable to generate product link. Please try again later.")
 
 
+async def alternatives_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle alternatives button clicks to show product alternatives.
+
+    Args:
+    ----
+        update: Telegram update object with callback query
+        context: Bot context
+
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    from sqlmodel import Session
+    from .cache_service import engine
+    from .models import Watch
+
+    query = update.callback_query
+
+    # Parse callback data: "alternatives:watch_id:current_asin"
+    try:
+        _, watch_id_str, current_asin = query.data.split(":", 2)
+        watch_id = int(watch_id_str)
+    except (ValueError, IndexError):
+        await query.answer("❌ Invalid request. Please try again.")
+        return
+
+    # For now, show a placeholder message about alternatives
+    # In a full implementation, this would retrieve the original search results
+    # and show the top alternatives with selection options
+
+    alternatives_message = """🔄 **Product Alternatives**
+
+Here are other great options that matched your search:
+
+**Option 1:** Alternative Product A
+💰 ₹XX,XXX | ⭐ 4.5/5 | 📊 Score: 0.68
+
+**Option 2:** Alternative Product B
+💰 ₹XX,XXX | ⭐ 4.3/5 | 📊 Score: 0.65
+
+**Option 3:** Alternative Product C
+💰 ₹XX,XXX | ⭐ 4.2/5 | 📊 Score: 0.62
+
+Choose an alternative or stick with your current selection!"""
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Back to Main Product", callback_data=f"back_to_main:{watch_id}:{current_asin}")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel")]
+    ])
+
+    try:
+        await query.answer()
+        if query.message:  # Check if message exists
+            await query.message.reply_text(
+                alternatives_message,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        else:
+            logger.warning("No message available in callback query for alternatives response")
+    except Exception as e:
+        logger.error("Failed to show alternatives: %s", e)
+        await query.answer("❌ Unable to show alternatives. Please try again.")
+
+
+async def back_to_main_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle back to main product button clicks.
+
+    Args:
+    ----
+        update: Telegram update object with callback query
+        context: Bot context
+
+    """
+    query = update.callback_query
+
+    # Parse callback data: "back_to_main:watch_id:asin"
+    try:
+        _, watch_id_str, asin = query.data.split(":", 2)
+        watch_id = int(watch_id_str)
+    except (ValueError, IndexError):
+        await query.answer("❌ Invalid request. Please try again.")
+        return
+
+    try:
+        await query.answer("🔙 Returning to main product...")
+        if query.message:  # Check if message exists
+            await query.message.reply_text(
+                "🔙 **Back to Main Product**\n\n"
+                "Your original product selection is still active!\n"
+                "Use the buttons below to buy now or explore alternatives again.",
+                parse_mode="Markdown"
+            )
+        else:
+            logger.warning("No message available in callback query for back to main response")
+    except Exception as e:
+        logger.error("Failed to return to main product: %s", e)
+        await query.answer("❌ Unable to return. Please try again.")
+
+
+async def refine_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle search refinement callbacks to create new refined searches."""
+    from .watch_flow import _finalize_watch
+    from .watch_parser import parse_watch, validate_watch_data
+
+    query = update.callback_query
+
+    # Parse callback data: "refine_type:value:max_price"
+    try:
+        parts = query.data.split(":", 2)
+        if len(parts) < 3:
+            raise ValueError("Invalid refinement format")
+
+        refine_type = parts[0].replace("refine_", "")  # Remove "refine_" prefix
+        refine_value = parts[1]
+        max_price = parts[2] if parts[2] != "None" else None
+
+    except (ValueError, IndexError):
+        await query.answer("❌ Invalid refinement request. Please try again.")
+        return
+
+    # Build refined search query
+    if refine_type == "brand":
+        refined_query = f"{refine_value} monitor"
+    elif refine_type == "size":
+        refined_query = f"{refine_value} inch monitor"
+    elif refine_type == "panel":
+        refined_query = f"{refine_value.upper()} panel monitor"
+    elif refine_type == "refresh":
+        refined_query = f"{refine_value}hz monitor"
+    elif refine_type == "resolution":
+        refined_query = f"{refine_value} monitor"
+    elif refine_type == "price":
+        # For price refinements, the value is the new max price
+        refined_query = f"monitor under ₹{refine_value}"
+    else:
+        await query.answer("❌ Unknown refinement type.")
+        return
+
+    # Add price constraint if available
+    if max_price and max_price != "None":
+        refined_query += f" under ₹{max_price}"
+
+    try:
+        await query.answer(f"🔍 Searching for: {refined_query}")
+
+        # Parse the refined query (simulate what start_watch does)
+        parsed_data = parse_watch(refined_query)
+        logger.info("Parsed refined watch data for user %s: %s",
+                   query.from_user.id if query.from_user else "unknown", parsed_data)
+
+        # Validate the parsed data
+        errors = validate_watch_data(parsed_data)
+        if errors:
+            error_msg = "⚠️ *Found some issues with refined search:*\n" + "\n".join(
+                f"• {err}" for err in errors.values()
+            )
+            await query.message.reply_text(error_msg, parse_mode="Markdown")
+            return
+
+        # Set default mode if not specified
+        if not parsed_data.get("mode"):
+            parsed_data["mode"] = "daily"
+
+        # Store in user data for consistency
+        context.user_data["pending_watch"] = parsed_data
+
+        # Create a mock update object that _finalize_watch can work with
+        # Use query.message as the message since that's available in callback queries
+        mock_update = type('MockUpdate', (), {
+            'effective_user': query.from_user,
+            'effective_chat': query.message.chat if query.message else None,
+            'message': query.message
+        })()
+
+        # Finalize the watch directly (bypass the missing fields logic since refinements are complete)
+        await _finalize_watch(mock_update, context, parsed_data)
+
+    except Exception as e:
+        logger.error("Failed to process refinement: %s", e)
+        await query.answer("❌ Failed to process refinement. Please try again.")
+
+
+async def refine_cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle cancel refinement callback."""
+    query = update.callback_query
+
+    try:
+        await query.answer("✅ Keeping your current watch settings!")
+        if query.message:  # Check if message exists (it should in callback queries)
+            await query.message.reply_text(
+                "✅ **Search refinement cancelled**\n\n"
+                "Your original watch is still active and will continue to monitor for price drops and deals.",
+                parse_mode="Markdown"
+            )
+        else:
+            logger.warning("No message available in callback query for cancel response")
+    except Exception as e:
+        logger.error("Failed to cancel refinement: %s", e)
+        await query.answer("❌ Unable to cancel. Please try again.")
+
+
 async def handle_text_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -575,6 +775,39 @@ def setup_handlers(app) -> None:
     # Register click handler for affiliate link tracking
     app.add_handler(
         CallbackQueryHandler(click_handler, pattern=r"^click:\d+:[A-Z0-9]+$")
+    )
+
+    # Register alternatives handler for showing product alternatives
+    app.add_handler(
+        CallbackQueryHandler(alternatives_handler, pattern=r"^alternatives:\d+:[A-Z0-9]+$")
+    )
+
+    # Register back to main product handler
+    app.add_handler(
+        CallbackQueryHandler(back_to_main_handler, pattern=r"^back_to_main:\d+:[A-Z0-9]+$")
+    )
+
+    # Register search refinement handlers
+    app.add_handler(
+        CallbackQueryHandler(refine_handler, pattern=r"^refine_brand:.+")
+    )
+    app.add_handler(
+        CallbackQueryHandler(refine_handler, pattern=r"^refine_size:.+")
+    )
+    app.add_handler(
+        CallbackQueryHandler(refine_handler, pattern=r"^refine_panel:.+")
+    )
+    app.add_handler(
+        CallbackQueryHandler(refine_handler, pattern=r"^refine_refresh:.+")
+    )
+    app.add_handler(
+        CallbackQueryHandler(refine_handler, pattern=r"^refine_resolution:.+")
+    )
+    app.add_handler(
+        CallbackQueryHandler(refine_handler, pattern=r"^refine_price:.+")
+    )
+    app.add_handler(
+        CallbackQueryHandler(refine_cancel_handler, pattern=r"^refine_cancel$")
     )
 
     # Register message handler for free text (should be last to avoid conflicts)

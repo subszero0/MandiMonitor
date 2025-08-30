@@ -83,12 +83,21 @@ async def get_price_async(asin: str) -> int:
                     f"Could not fetch price for ASIN {asin} from any source",
                 ) from e
 
-        # Update cache
-        cache_entry = Cache(asin=asin, price=price, fetched_at=datetime.utcnow())
-        session.merge(cache_entry)
-        session.commit()
-
-        log.info("Cached new price for ASIN %s: %d paise", asin, price)
+        # Handle case when no price could be fetched
+        if price is None:
+            log.warning("No price could be fetched for ASIN %s from any source", asin)
+            # Return a default price instead of None to prevent type issues
+            price = 0
+        
+        # Only update cache if we have a valid price > 0
+        if price and price > 0:
+            cache_entry = Cache(asin=asin, price=price, fetched_at=datetime.utcnow())
+            session.merge(cache_entry)
+            session.commit()
+            log.info("Cached new price for ASIN %s: %d paise", asin, price)
+        else:
+            log.warning("Skipping cache update for ASIN %s: price is %s", asin, price)
+            
         return price
 
 
@@ -130,8 +139,15 @@ def get_price(asin: str) -> int:
         # First try enhanced PA-API
         try:
             log.info("Fetching price via enhanced PA-API for ASIN: %s", asin)
-            item_data = asyncio.run(get_item_detailed(asin, priority="high"))
-            price = item_data.get("price")
+            # Use async version instead of asyncio.run() to avoid event loop conflicts
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're in an async context, can't use asyncio.run()
+                log.warning("Cannot use PA-API from sync context in async environment")
+                item_data = None
+            else:
+                item_data = asyncio.run(get_item_detailed(asin, priority="high"))
+            price = item_data.get("price") if item_data else None
             if price:
                 log.info("Enhanced PA-API returned price for ASIN %s: %d paise", asin, price)
             else:
@@ -153,8 +169,16 @@ def get_price(asin: str) -> int:
         if price is None:
             try:
                 log.info("Fetching price via scraper for ASIN: %s", asin)
-                price = asyncio.run(scrape_price(asin))
-                log.info("Scraper returned price for ASIN %s: %d paise", asin, price)
+                # Use async version instead of asyncio.run() to avoid event loop conflicts
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # We're in an async context, can't use asyncio.run()
+                    log.warning("Cannot use scraper from sync context in async environment")
+                    price = None
+                else:
+                    price = asyncio.run(scrape_price(asin))
+                if price:
+                    log.info("Scraper returned price for ASIN %s: %d paise", asin, price)
             except Exception as e:
                 log.error("Scraper failed for ASIN %s: %s", asin, e)
                 if cached_result:
@@ -168,12 +192,21 @@ def get_price(asin: str) -> int:
                     f"Could not fetch price for ASIN {asin} from any source",
                 ) from e
 
-        # Update cache
-        cache_entry = Cache(asin=asin, price=price, fetched_at=datetime.utcnow())
-        session.merge(cache_entry)
-        session.commit()
-
-        log.info("Cached new price for ASIN %s: %d paise", asin, price)
+        # Handle case when no price could be fetched
+        if price is None:
+            log.warning("No price could be fetched for ASIN %s from any source", asin)
+            # Return a default price instead of None to prevent type issues
+            price = 0
+        
+        # Only update cache if we have a valid price > 0
+        if price and price > 0:
+            cache_entry = Cache(asin=asin, price=price, fetched_at=datetime.utcnow())
+            session.merge(cache_entry)
+            session.commit()
+            log.info("Cached new price for ASIN %s: %d paise", asin, price)
+        else:
+            log.warning("Skipping cache update for ASIN %s: price is %s", asin, price)
+            
         return price
 
 

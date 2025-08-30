@@ -13,9 +13,15 @@ PAT_BRAND = re.compile(
     re.IGNORECASE,
 )
 
-# Price under pattern - matches "under 30000", "below 25k", etc.
+# Price under pattern - matches "under 30000", "below 25k", "under INR 30k", etc.
 PAT_PRICE_UNDER = re.compile(
-    r"\b(?:under|below|less[- ]?than|within|max|maximum|up[- ]?to)[- ]?(?:rs\.?[- ]?|₹[- ]?)?([1-9][0-9,]*(?:k|000)?)\b",
+    r"\b(?:under|below|less[- ]?than|within|max|maximum|up[- ]?to)[- ]?(?:rs\.?[- ]?|₹[- ]?|inr[- ]?)?([1-9][0-9,]*(?:k|000)?)\b",
+    re.IGNORECASE,
+)
+
+# Price range pattern - matches "between 40000 and 50000", "₹40k to ₹50k", "INR 40k to INR 50k", etc.
+PAT_PRICE_RANGE = re.compile(
+    r"\b(?:between|from|range)[- ]?(?:rs\.?[- ]?|₹[- ]?|inr[- ]?)?([1-9][0-9,]*(?:k|000)?)[- ]?(?:and|to|[- ])[- ]?(?:rs\.?[- ]?|₹[- ]?|inr[- ]?)?([1-9][0-9,]*(?:k|000)?)\b",
     re.IGNORECASE,
 )
 

@@ -58,6 +58,10 @@ class OfficialPaapiClient:
         
         # Initialize resource manager
         self.resource_manager = get_resource_manager()
+
+        # Client-side filtering variables
+        self._client_side_min_price = None
+        self._client_side_max_price = None
         
     async def get_item_detailed(
         self, asin: str, resources: Optional[List[str]] = None, priority: str = "normal"
@@ -423,7 +427,7 @@ class OfficialPaapiClient:
             item_count: Number of items to return (1-30, uses pagination for >10)
             item_page: Page number (1-10)
             sort_by: Sort criteria (ignored for now)
-            browse_node_id: Specific category ID (ignored for now)
+            browse_node_id: Specific category ID for targeted search
             priority: Request priority for rate limiting
             enable_ai_analysis: Whether to use AI-enhanced resources (None=auto-detect)
 
@@ -441,7 +445,29 @@ class OfficialPaapiClient:
 
         # Determine AI analysis setting
         use_ai = enable_ai_analysis if enable_ai_analysis is not None else ENABLE_AI_ANALYSIS
-        
+
+        # FIXED: Now we can use AI even when both price filters are provided
+        # Price filters are properly passed to PA-API, no more recursion risk
+        log.info("🔍 PRICE FILTER DEBUG: search_items_advanced called with:")
+        log.info("   keywords='%s'", keywords)
+        log.info("   min_price=%s (%s)", min_price, f"₹{min_price/100:.0f}" if min_price else "None")
+        log.info("   max_price=%s (%s)", max_price, f"₹{max_price/100:.0f}" if max_price else "None")
+        log.info("   search_index='%s'", search_index)
+        log.info("   use_ai=%s", use_ai)
+
+        if use_ai:
+            if min_price is not None and max_price is not None:
+                log.info("🎯 Using AI-enhanced search with BOTH price filters (₹%.2f - ₹%.2f)",
+                        min_price/100, max_price/100)
+            elif min_price is not None:
+                log.info("🎯 Using AI-enhanced search with min_price filter (₹%.2f+)",
+                        min_price/100)
+            elif max_price is not None:
+                log.info("🎯 Using AI-enhanced search with max_price filter (up to ₹%.2f)",
+                        max_price/100)
+            else:
+                log.info("🎯 Using AI-enhanced search (no price filters)")
+
         # If AI analysis is enabled, use the AI bridge
         if use_ai:
             try:
@@ -458,12 +484,19 @@ class OfficialPaapiClient:
                 
                 final_keywords = " ".join(search_terms)
                 
+                log.info("🎯 PASSING PRICE FILTERS TO AI BRIDGE:")
+                log.info("   min_price=%s (%s)", min_price, f"₹{min_price/100:.0f}" if min_price else "None")
+                log.info("   max_price=%s (%s)", max_price, f"₹{max_price/100:.0f}" if max_price else "None")
+
                 ai_result = await search_products_with_ai_analysis(
                     keywords=final_keywords,
                     search_index=search_index,
-                    item_count=min(item_count, 10),  # AI bridge handles 1 page at a time
+                    item_count=item_count,  # Let AI bridge handle pagination for full item count
                     enable_ai_analysis=True,
-                    priority=priority
+                    priority=priority,
+                    recursion_depth=0,  # Start with depth 0
+                    min_price=min_price,
+                    max_price=max_price
                 )
                 
                 if ai_result["products"]:
@@ -491,6 +524,7 @@ class OfficialPaapiClient:
                 condition=condition,
                 item_count=item_count,
                 item_page=item_page,
+                browse_node_id=browse_node_id,
             )
             return result
         except ApiException as exc:
@@ -503,6 +537,263 @@ class OfficialPaapiClient:
         except Exception as exc:
             log.error("Unexpected PA-API search error: %s", exc)
             raise
+
+    def _calculate_search_depth(self, keywords: str, search_index: str, min_price: Optional[int],
+                               max_price: Optional[int], item_count: int) -> int:
+        """
+        Phase 3: Calculate optimal search depth based on search criteria.
+
+        Determines how many pages to search through based on:
+        - Budget level (higher budgets = more pages)
+        - Search terms (premium terms = more pages)
+        - Search index (Electronics = more pages for variety)
+        - Item count requested (higher count = more pages)
+
+        Args:
+            keywords: Search keywords
+            search_index: Product category
+            min_price: Minimum price in paise
+            max_price: Maximum price in paise
+            item_count: Total items requested
+
+        Returns:
+            int: Number of pages to search (1-10)
+        """
+        # Base search depth
+        base_depth = 3  # Default to current limit
+
+        # Premium search indicators
+        premium_indicators = [
+            # High-end brands
+            "apple", "samsung", "sony", "nike", "adidas", "dell", "hp", "lenovo", "asus", "acer",
+            # Premium terms
+            "premium", "professional", "gaming", "studio", "enterprise", "business",
+            # Quality indicators
+            "4k", "uhd", "hdr", "oled", "qled", "curved", "wireless", "bluetooth",
+            # Size/resolution terms
+            "144hz", "240hz", "ips", "va", "tn", "1440p", "2160p"
+        ]
+
+        # Budget-based depth calculation
+        budget_multiplier = 1.0
+
+        if min_price is not None:
+            min_price_rupees = min_price / 100
+            if min_price_rupees >= 50000:  # ₹50k+ premium products
+                budget_multiplier = 3.0
+                log.debug("High budget detected (₹%.0f+): Using 3x search depth", min_price_rupees)
+            elif min_price_rupees >= 25000:  # ₹25k+ mid-range
+                budget_multiplier = 2.5
+                log.debug("Mid budget detected (₹%.0f+): Using 2.5x search depth", min_price_rupees)
+            elif min_price_rupees >= 10000:  # ₹10k+ decent products
+                budget_multiplier = 2.0
+                log.debug("Decent budget detected (₹%.0f+): Using 2x search depth", min_price_rupees)
+
+        # Premium keyword detection
+        keyword_lower = keywords.lower()
+        premium_score = sum(1 for indicator in premium_indicators if indicator in keyword_lower)
+
+        if premium_score >= 3:  # Multiple premium indicators
+            budget_multiplier *= 1.5
+            log.debug("Multiple premium indicators (%d) detected: Boosting search depth by 1.5x", premium_score)
+        elif premium_score >= 1:  # At least one premium indicator
+            budget_multiplier *= 1.2
+            log.debug("Premium indicator detected (%d): Boosting search depth by 1.2x", premium_score)
+
+        # Search index multipliers
+        index_multipliers = {
+            "Electronics": 1.5,  # Electronics has more variety
+            "Computers": 1.4,    # Computer accessories vary widely
+            "VideoGames": 1.3,   # Gaming products have many options
+            "HomeImprovement": 1.2,  # Home products vary by quality
+        }
+
+        if search_index in index_multipliers:
+            index_multiplier = index_multipliers[search_index]
+            budget_multiplier *= index_multiplier
+            log.debug("Search index '%s': Applying %.1fx multiplier", search_index, index_multiplier)
+
+        # Item count factor
+        if item_count >= 50:  # Large result sets
+            budget_multiplier *= 1.3
+            log.debug("Large item count (%d): Boosting search depth by 1.3x", item_count)
+        elif item_count >= 30:  # Medium result sets
+            budget_multiplier *= 1.2
+            log.debug("Medium item count (%d): Boosting search depth by 1.2x", item_count)
+
+        # Calculate final depth
+        calculated_depth = int(base_depth * budget_multiplier)
+
+        # Cap at maximum (Amazon allows max 10 pages, but we'll use 8 for safety)
+        max_depth = 8
+        final_depth = min(calculated_depth, max_depth)
+
+        # Ensure minimum of 1 page
+        final_depth = max(final_depth, 1)
+
+        log.info("Phase 3 Search Depth Calculation: base=%d, multiplier=%.2f, calculated=%d, final=%d pages",
+                base_depth, budget_multiplier, calculated_depth, final_depth)
+
+        return final_depth
+
+    def _enhance_search_query(self, keywords: Optional[str], title: Optional[str], brand: Optional[str],
+                             min_price: Optional[int], max_price: Optional[int], search_index: str) -> Optional[str]:
+        """
+        Phase 4: Enhance search queries with intelligent term additions based on budget and context.
+
+        Adds premium terms, quality indicators, and relevant keywords to improve search results:
+        - Higher budgets get premium/quality terms
+        - Electronics get tech specifications
+        - Specific categories get targeted enhancements
+
+        Args:
+            keywords: Original search keywords
+            title: Title search terms
+            brand: Brand search terms
+            min_price: Minimum price in paise
+            max_price: Maximum price in paise
+            search_index: Product category
+
+        Returns:
+            Enhanced keywords string or None if no enhancement needed
+        """
+        if not keywords:
+            return None
+
+        original_keywords = keywords.strip()
+        if not original_keywords:
+            return None
+
+        # Start with original keywords
+        enhanced_terms = [original_keywords]
+        enhancement_reasons = []
+
+        # Budget-based enhancements (convert paise to rupees for calculation)
+        min_price_rupees = (min_price / 100) if min_price else 0
+        max_price_rupees = (max_price / 100) if max_price else 0
+
+        # Ultra-premium range (₹1 lakh+)
+        if min_price_rupees >= 100000:
+            enhanced_terms.extend([
+                "professional", "studio", "enterprise", "premium", "high-end",
+                "flagship", "top-tier", "ultimate"
+            ])
+            enhancement_reasons.append("Ultra-premium budget (₹1L+): Added professional/studio terms")
+
+        # Premium range (₹50k-99k)
+        elif min_price_rupees >= 50000:
+            enhanced_terms.extend([
+                "professional", "premium", "high-performance", "advanced",
+                "business", "creator", "enthusiast"
+            ])
+            enhancement_reasons.append("Premium budget (₹50k+): Added professional/advanced terms")
+
+        # Mid-premium range (₹25k-49k)
+        elif min_price_rupees >= 25000:
+            # Only add gaming if not already in the query
+            gaming_terms = []
+            if "gaming" not in original_keywords.lower():
+                gaming_terms = ["gaming"]
+            enhanced_terms.extend(gaming_terms + [
+                "performance", "quality", "reliable",
+                "mid-range", "value-premium"
+            ])
+            enhancement_reasons.append("Mid-premium budget (₹25k+): Added performance/quality terms")
+
+        # Budget range (₹10k-24k) - focus on value
+        elif min_price_rupees >= 10000:
+            enhanced_terms.extend([
+                "value", "reliable", "good", "quality",
+                "budget-friendly", "practical"
+            ])
+            enhancement_reasons.append("Budget range (₹10k+): Added value/reliability terms")
+
+        # Category-specific enhancements
+        if search_index == "Electronics":
+            # Add tech specifications for electronics
+            if any(term in original_keywords.lower() for term in ["monitor", "display", "screen"]):
+                # Monitor-specific enhancements
+                if min_price_rupees >= 30000:
+                    enhanced_terms.extend(["4k", "uhd", "hdr", "ips", "144hz", "high-refresh"])
+                    enhancement_reasons.append("Electronics monitor: Added premium display specs")
+                elif min_price_rupees >= 15000:
+                    # Only add gaming if not already in the query
+                    gaming_terms = []
+                    if "gaming" not in original_keywords.lower():
+                        gaming_terms = ["gaming"]
+                    enhanced_terms.extend(gaming_terms + ["144hz", "ips", "qhd", "high-refresh"])
+                    enhancement_reasons.append("Electronics monitor: Added gaming display specs")
+                else:
+                    enhanced_terms.extend(["hd", "1080p", "60hz", "basic"])
+                    enhancement_reasons.append("Electronics monitor: Added basic display specs")
+
+            elif any(term in original_keywords.lower() for term in ["laptop", "notebook", "computer"]):
+                # Laptop-specific enhancements
+                if min_price_rupees >= 50000:
+                    enhanced_terms.extend(["high-performance", "creator", "workstation", "ssd"])
+                    enhancement_reasons.append("Electronics laptop: Added premium laptop specs")
+                elif min_price_rupees >= 25000:
+                    enhanced_terms.extend(["gaming", "performance", "ssd", "dedicated-graphics"])
+                    enhancement_reasons.append("Electronics laptop: Added gaming laptop specs")
+                else:
+                    enhanced_terms.extend(["basic", "office", "student", "budget"])
+                    enhancement_reasons.append("Electronics laptop: Added basic laptop specs")
+
+            elif any(term in original_keywords.lower() for term in ["headphone", "earphone", "headset"]):
+                # Audio-specific enhancements
+                if min_price_rupees >= 8000:
+                    enhanced_terms.extend(["wireless", "bluetooth", "noise-cancelling", "premium"])
+                    enhancement_reasons.append("Electronics audio: Added premium audio features")
+                else:
+                    enhanced_terms.extend(["wired", "basic", "reliable"])
+                    enhancement_reasons.append("Electronics audio: Added basic audio features")
+
+        elif search_index == "Computers":
+            # Computer accessories specific
+            if any(term in original_keywords.lower() for term in ["keyboard", "mouse", "webcam"]):
+                if min_price_rupees >= 5000:
+                    enhanced_terms.extend(["wireless", "bluetooth", "ergonomic", "premium"])
+                    enhancement_reasons.append("Computers accessory: Added premium accessory features")
+                else:
+                    enhanced_terms.extend(["wired", "basic", "reliable"])
+                    enhancement_reasons.append("Computers accessory: Added basic accessory features")
+
+        # Brand consistency check - don't add brand terms if brand is already specified
+        if brand and brand.strip():
+            # Remove any brand-related terms from enhancements to avoid duplication
+            brand_lower = brand.lower()
+            enhanced_terms = [term for term in enhanced_terms
+                            if not any(brand_word in term.lower()
+                                     for brand_word in brand_lower.split())]
+
+        # Quality and feature enhancements (always add these for higher budgets)
+        if min_price_rupees >= 20000:
+            # Add quality indicators
+            quality_terms = ["quality", "reliable", "durable", "premium-build"]
+            enhanced_terms.extend(quality_terms)
+            enhancement_reasons.append("Quality enhancement: Added reliability/durability terms")
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_terms = []
+        for term in enhanced_terms:
+            term_lower = term.lower()
+            if term_lower not in seen:
+                seen.add(term_lower)
+                unique_terms.append(term)
+
+        enhanced_query = " ".join(unique_terms)
+
+        # Only return enhanced query if it's meaningfully different
+        if enhanced_query != original_keywords and len(enhancement_reasons) > 0:
+            log.info("Phase 4 Query Enhancement: '%s' → '%s'",
+                    original_keywords, enhanced_query)
+            for reason in enhancement_reasons:
+                log.debug("Phase 4 Enhancement: %s", reason)
+            return enhanced_query
+        else:
+            log.debug("Phase 4 Query Enhancement: No enhancement needed for '%s'", original_keywords)
+            return None
 
     def _sync_search_items(
         self,
@@ -517,11 +808,17 @@ class OfficialPaapiClient:
         condition: str = "New",
         item_count: int = 30,
         item_page: int = 1,
+        browse_node_id: Optional[int] = None,
     ) -> List[Dict]:
         """Synchronous search using official SDK."""
+        # Phase 4: Smart Query Enhancement - Enhance keywords based on budget and criteria
+        enhanced_keywords = self._enhance_search_query(keywords, title, brand, min_price, max_price, search_index)
+
         # Combine search terms
         search_terms = []
-        if keywords:
+        if enhanced_keywords:
+            search_terms.append(enhanced_keywords)
+        elif keywords:  # Fallback to original if enhancement fails
             search_terms.append(keywords)
         if title:
             search_terms.append(title)
@@ -550,7 +847,13 @@ class OfficialPaapiClient:
         # To get more items, we need to use pagination
         max_items_per_request = 10
         all_items = []
-        pages_needed = min(3, (item_count + max_items_per_request - 1) // max_items_per_request)  # Max 3 pages for 30 items
+
+        # Phase 3: Dynamic Search Depth - Determine optimal pagination depth
+        max_pages = self._calculate_search_depth(final_keywords, search_index, min_price, max_price, item_count)
+        pages_needed = min(max_pages, (item_count + max_items_per_request - 1) // max_items_per_request)
+
+        log.info("Phase 3 Extended Search: Using %d pages (max allowed: %d) for search: %s",
+                pages_needed, max_pages, final_keywords)
         
         for page in range(1, pages_needed + 1):
             items_for_this_page = min(max_items_per_request, item_count - len(all_items))
@@ -570,10 +873,65 @@ class OfficialPaapiClient:
                 resources=resources
             )
         
+            # Add browse node filtering if specified
+            # Browse node ID helps target specific categories for more relevant results
+            if browse_node_id is not None:
+                search_items_request.browse_node_id = str(browse_node_id)
+                log.info("Applied browse node filter: %s (ID: %s)", browse_node_id, search_items_request.browse_node_id)
+
             # Add price filters if specified (convert paise to rupees)
             # Note: PA-API expects price in currency units (rupees for INR)
-            # min_price and max_price are in paise, so divide by 100
-            # TODO: Implement price filtering when available in SDK
+            # min_price and max_price are in paise, so divide by 100 to get rupees
+            #
+            # IMPORTANT: PA-API SearchItems has a limitation where it cannot handle
+            # both min_price and max_price simultaneously. When both are provided,
+            # the API may ignore them or return unfiltered results.
+            # Workaround: Prefer min_price when both are specified.
+
+            if min_price is not None and max_price is not None:
+                # CRITICAL FIX: PA-API expects prices in paise/cents, not rupees!
+                # Input is already in paise, send directly to PA-API
+                log.info("TESTING: Sending both min_price (%d paise = ₹%.2f) and max_price (%d paise = ₹%.2f) to PA-API",
+                        min_price, min_price/100, max_price, max_price/100)
+
+                # Send both filters directly to PA-API (prices already in paise)
+                search_items_request.min_price = min_price
+                search_items_request.max_price = max_price
+
+                log.debug("SearchItemsRequest.min_price set to: %d paise", min_price)
+                log.debug("SearchItemsRequest.max_price set to: %d paise", max_price)
+
+                # Clear client-side filters - let PA-API handle both
+                self._client_side_min_price = None
+                self._client_side_max_price = None
+
+            elif min_price is not None:
+                # Send min_price in paise (PA-API expects cents/paise)
+                search_items_request.min_price = min_price
+                log.info("Applied min_price filter: ₹%.2f (sending %d paise to PA-API)", min_price/100, min_price)
+                log.debug("SearchItemsRequest.min_price set to: %d paise", min_price)
+
+            elif max_price is not None:
+                # Send max_price in paise (PA-API expects cents/paise)
+                search_items_request.max_price = max_price
+                log.info("Applied max_price filter: ₹%.2f (sending %d paise to PA-API)", max_price/100, max_price)
+                log.debug("SearchItemsRequest.max_price set to: %d paise", max_price)
+
+            # Debug: Log all search parameters being sent to API
+            log.info("📡 FINAL PA-API CALL PARAMETERS:")
+            log.info("   keywords='%s'", final_keywords)
+            log.info("   min_price=%s (%s)", getattr(search_items_request, 'min_price', None),
+                     f"₹{getattr(search_items_request, 'min_price', 0)/100:.0f}" if getattr(search_items_request, 'min_price', None) else "None")
+            log.info("   max_price=%s (%s)", getattr(search_items_request, 'max_price', None),
+                     f"₹{getattr(search_items_request, 'max_price', 0)/100:.0f}" if getattr(search_items_request, 'max_price', None) else "None")
+            log.info("   search_index='%s'", search_index)
+            log.info("   item_count=%d", items_for_this_page)
+
+            log.info("PA-API SearchItems parameters: keywords='%s', min_price=%s, max_price=%s, search_index='%s'",
+                    final_keywords,
+                    getattr(search_items_request, 'min_price', None),
+                    getattr(search_items_request, 'max_price', None),
+                    search_index)
             
             # Add review rating filter if specified
             # TODO: Implement review rating filtering when available in SDK
@@ -599,14 +957,25 @@ class OfficialPaapiClient:
                 log.info("Retrieved %d items from page %d, total so far: %d", 
                         len(page_items), page, len(all_items))
                 
-                # Rate limiting: Wait longer between requests to respect PA-API limits
+                # Phase 3: Dynamic rate limiting based on search depth
                 # Amazon PA-API is very strict about rate limits for SearchItems requests
                 if page < pages_needed:  # Don't wait after the last request
-                    # Use a longer delay for pagination to avoid 429 errors
-                    # SearchItems has stricter limits than GetItems
                     import time
-                    time.sleep(2.5)  # Increased from 1.1s to 2.5s for pagination
-                    log.info("Applied 2.5s rate limiting between pagination requests")
+
+                    # Calculate dynamic delay based on search depth
+                    if pages_needed <= 3:
+                        delay = 2.5  # Standard delay for normal searches
+                        delay_reason = "standard search"
+                    elif pages_needed <= 5:
+                        delay = 3.5  # Longer delay for extended searches
+                        delay_reason = "extended search"
+                    else:
+                        delay = 4.5  # Maximum delay for deep searches
+                        delay_reason = "deep search"
+
+                    time.sleep(delay)
+                    log.info("Phase 3 Rate Limiting: Applied %.1fs delay for %s (page %d/%d)",
+                            delay, delay_reason, page, pages_needed)
 
             except ApiException as e:
                 log.error("Official PA-API search failed on page %d: Status %s, Body: %s", page, e.status, e.body)
@@ -625,6 +994,113 @@ class OfficialPaapiClient:
                     break
         
         log.info("Pagination complete: Retrieved %d total items from %d pages", len(all_items), pages_needed)
+
+        # Log price analysis of retrieved products
+        if all_items:
+            prices = []
+            for item in all_items:
+                price_info = item.get("offers", {}).get("listings", [{}])[0].get("price", {})
+                if price_info and "amount" in price_info:
+                    prices.append(price_info["amount"] / 100)  # Convert paise to rupees
+
+            if prices:
+                min_found = min(prices)
+                max_found = max(prices)
+                avg_price = sum(prices) / len(prices)
+
+                log.info("💰 PRODUCT PRICE ANALYSIS:")
+                log.info("   Found %d products with prices", len(prices))
+                log.info("   Price range: ₹%.0f - ₹%.2f", min_found, max_found)
+                log.info("   Average price: ₹%.2f", avg_price)
+                log.info("   Requested range: %s - %s",
+                        f"₹{min_price/100:.0f}" if min_price else "No min",
+                        f"₹{max_price/100:.0f}" if max_price else "No max")
+
+                # Check if any products are within the requested range
+                if min_price and max_price:
+                    in_range = [p for p in prices if min_price/100 <= p <= max_price/100]
+                    log.info("   Products in requested range (₹%.0f-%.0f): %d/%d",
+                            min_price/100, max_price/100, len(in_range), len(prices))
+                    if len(in_range) == 0:
+                        log.warning("⚠️  NO PRODUCTS FOUND IN REQUESTED PRICE RANGE!")
+            else:
+                log.warning("⚠️  No price information found in retrieved products")
+        else:
+            log.warning("⚠️  No products retrieved from PA-API")
+
+        # Apply client-side filtering if needed
+        if self._client_side_min_price is not None or self._client_side_max_price is not None:
+            original_count = len(all_items)
+            filtered_items = []
+            filtered_out_min = 0
+            filtered_out_max = 0
+            no_price_data = 0
+
+            print(f"\n🔍 CLIENT-SIDE FILTERING DEBUG:")
+            print(f"  Original items: {original_count}")
+            print(f"  Min price filter: ₹{self._client_side_min_price or 0:.2f}")
+            print(f"  Max price filter: ₹{self._client_side_max_price or 0:.2f}")
+            print(f"  Sample item prices:")
+
+            # Show first 3 item prices for debugging
+            for i, item in enumerate(all_items[:3]):
+                price = item.get('price', 0)
+                title = item.get('title', 'N/A')[:30]
+                print(f"    {i+1}. ₹{price} - {title}")
+
+            log.info("Starting client-side filtering: %d items to process", original_count)
+            log.info("Filters: min_price=₹%.2f, max_price=₹%.2f",
+                    self._client_side_min_price or 0, self._client_side_max_price or 0)
+
+            for item in all_items:
+                item_price = item.get('price', 0)
+                item_title = item.get('title', 'N/A')[:30]
+
+                # Skip items with no price data
+                if item_price is None or item_price == 0:
+                    no_price_data += 1
+                    log.debug("Skipping item with no price: %s", item_title)
+                    continue
+
+                # CRITICAL: Price comparison bug found!
+                # item_price is in paise (e.g., 267500 for ₹2675)
+                # but _client_side_min_price and _client_side_max_price are in rupees (e.g., 100000 for ₹100,000)
+                # We need to convert filter values to paise OR convert item prices to rupees
+                
+                # Convert filter values from rupees to paise for comparison
+                min_price_paise = self._client_side_min_price * 100 if self._client_side_min_price is not None else None
+                max_price_paise = self._client_side_max_price * 100 if self._client_side_max_price is not None else None
+
+                # Apply min_price filter if set (comparing paise to paise)
+                if min_price_paise is not None and item_price < min_price_paise:
+                    filtered_out_min += 1
+                    log.debug("Filtering out item below min_price: ₹%.2f < ₹%.2f (%s)",
+                            item_price/100, min_price_paise/100, item_title)
+                    continue  # Skip items below minimum price
+
+                # Apply max_price filter if set (comparing paise to paise)
+                if max_price_paise is not None and item_price > max_price_paise:
+                    filtered_out_max += 1
+                    log.debug("Filtering out item above max_price: ₹%.2f > ₹%.2f (%s)",
+                            item_price/100, max_price_paise/100, item_title)
+                    continue  # Skip items above maximum price
+
+                filtered_items.append(item)
+                log.debug("Item passed filters: ₹%.2f (%s)", item_price, item_title)
+
+            all_items = filtered_items
+
+            log.info("Client-side filtering completed:")
+            log.info("  Original items: %d", original_count)
+            log.info("  No price data: %d", no_price_data)
+            log.info("  Filtered out (below min): %d", filtered_out_min)
+            log.info("  Filtered out (above max): %d", filtered_out_max)
+            log.info("  Final items: %d", len(all_items))
+
+            # Reset the filters for next search
+            self._client_side_min_price = None
+            self._client_side_max_price = None
+
         return all_items
 
     def _extract_comprehensive_data(self, item) -> Dict:

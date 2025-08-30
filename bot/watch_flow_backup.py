@@ -1777,13 +1777,14 @@ async def send_single_card_experience(
         ai_metadata = selection_result.get("metadata", {})
         
         if ai_metadata.get("ai_selection"):
-            confidence = ai_metadata.get("ai_confidence", 0)
+            # Use the score for display confidence (more meaningful for users)
+            display_confidence = ai_metadata.get("ai_score", 0)
             rationale = ai_metadata.get("ai_rationale", "")
             ai_message = f"""🎯 **Smart Match Found!**
 
 I analyzed your requirements and found this product that best matches your needs.
 
-🤖 **AI Confidence**: {confidence:.0%}
+🤖 **AI Confidence**: {display_confidence:.0%}
 💡 **Why this product**: {rationale}
 
 ✅ **Watch created successfully!** You'll get alerts when the price drops or deals become available."""

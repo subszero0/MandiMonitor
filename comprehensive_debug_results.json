@@ -1,0 +1,72 @@
+{
+  "timestamp": "2025-08-30T16:32:24.176118",
+  "query": "Gaming monitor",
+  "tests": {
+    "min_price_only": {
+      "total_results": 10,
+      "prices": [
+        20999.0,
+        30599.0,
+        26999.0,
+        22499.0,
+        21299.0
+      ],
+      "price_stats": {
+        "min": 20999.0,
+        "max": 30599.0,
+        "avg": 24479.0,
+        "below_20k": 0,
+        "above_20k": 5
+      }
+    },
+    "max_price_only": {
+      "total_results": 10,
+      "prices": [
+        2675.0,
+        9499.0,
+        6599.0,
+        8699.0,
+        6902.0
+      ],
+      "price_stats": {
+        "min": 2675.0,
+        "max": 9499.0,
+        "avg": 6874.8,
+        "below_60k": 5,
+        "above_60k": 0
+      }
+    },
+    "both_filters": {
+      "total_results": 10,
+      "prices": [
+        20999.0,
+        30599.0,
+        26999.0,
+        22499.0,
+        21299.0
+      ],
+      "price_stats": {
+        "min": 20999.0,
+        "max": 30599.0,
+        "avg": 24479.0,
+        "in_range": 5,
+        "out_of_range": 0
+      }
+    },
+    "no_filters": {
+      "total_results": 10,
+      "prices": [
+        2675.0,
+        9499.0,
+        6599.0,
+        8699.0,
+        6902.0
+      ],
+      "price_stats": {
+        "min": 2675.0,
+        "max": 9499.0,
+        "avg": 6874.8
+      }
+    }
+  }
+}

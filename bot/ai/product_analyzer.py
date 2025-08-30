@@ -32,6 +32,9 @@ class ProductFeatureAnalyzer:
         """Initialize the product feature analyzer."""
         self._setup_patterns()
         self._setup_validation_ranges()
+        # Add simple in-memory cache for feature extraction
+        self._feature_cache = {}
+        self._cache_max_size = 100
         
     def _setup_patterns(self):
         """Set up regex patterns for extracting features from product text."""
@@ -121,8 +124,16 @@ class ProductFeatureAnalyzer:
                 "extraction_metadata": {...}
             }
         """
-        log.debug(f"Analyzing product features for ASIN: {product_data.get('asin', 'Unknown')}")
-        
+        asin = product_data.get('asin', 'Unknown')
+        cache_key = f"{asin}_{category}"
+
+        # Check cache first
+        if cache_key in self._feature_cache:
+            log.debug(f"Using cached features for ASIN: {asin}")
+            return self._feature_cache[cache_key]
+
+        log.debug(f"Analyzing product features for ASIN: {asin}")
+
         extracted_features = {}
         extraction_sources = {}
         confidence_scores = {}
@@ -196,6 +207,15 @@ class ProductFeatureAnalyzer:
         }
         
         log.info(f"Extracted {len(extracted_features)} features with overall confidence {overall_confidence:.3f}")
+
+        # Cache the result for future use
+        if len(self._feature_cache) >= self._cache_max_size:
+            # Remove oldest entry (simple LRU approximation)
+            oldest_key = next(iter(self._feature_cache))
+            del self._feature_cache[oldest_key]
+
+        self._feature_cache[cache_key] = result
+
         return result
 
     def _prioritize_data_sources(self, product_data: Dict) -> Dict[str, Any]:

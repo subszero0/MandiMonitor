@@ -92,6 +92,9 @@ class FeatureMatchingEngine:
         start_time = time.time()
         
         if not user_features or not product_features:
+            log.warning(f"Empty features - user: {bool(user_features)}, product: {bool(product_features)}")
+            log.warning(f"User features: {user_features}")
+            log.warning(f"Product features: {product_features}")
             return self._empty_score("No features to compare")
         
         # Get category-specific weights
@@ -104,11 +107,29 @@ class FeatureMatchingEngine:
         missing_features = []
         feature_scores = {}
         
+        # Handle usage context for better scoring when no technical specs provided
+        usage_context = user_features.get("usage_context")
+        if usage_context and len([k for k in user_features if k not in ["confidence", "processing_time_ms", "technical_query", 
+                                  "category_detected", "matched_features_count", "technical_density", "category", "usage_context"]]) == 0:
+            # No technical specs, but we have usage context - apply context-based scoring
+            log.info(f"Applying usage context scoring for '{usage_context}'")
+            final_score = self._calculate_usage_context_score(product_features, usage_context, category)
+            
+            return {
+                "score": final_score,
+                "rationale": f"Optimized for {usage_context} usage",
+                "matched_features": ["usage_context"],
+                "mismatched_features": [],
+                "missing_features": [],
+                "confidence": 0.6,  # Medium confidence for context-based scoring
+                "processing_time_ms": (time.time() - start_time) * 1000
+            }
+        
         # Score each user requirement
         for feature_name, user_value in user_features.items():
             # Skip metadata fields
             if feature_name in ["confidence", "processing_time_ms", "technical_query", 
-                               "category_detected", "matched_features_count", "technical_density"]:
+                               "category_detected", "matched_features_count", "technical_density", "category", "usage_context"]:
                 continue
                 
             weight = weights.get(feature_name, 1.0)
@@ -146,21 +167,22 @@ class FeatureMatchingEngine:
         # Calculate final score
         if total_weight > 0:
             final_score = total_score / total_weight
+            log.debug(f"Feature-based scoring: total_score={total_score:.3f}, total_weight={total_weight:.3f}, final={final_score:.3f}")
         else:
             # If no specific user requirements, use product quality scoring
             # This allows AI to rank products by their technical specifications
             final_score = self._calculate_product_quality_score(product_features, category)
             
             # Log detailed information for debugging
-            log.debug(
-                "Using product quality scoring: features=%s, score=%.3f",
+            log.warning(
+                "Using product quality scoring (total_weight=0): features=%s, score=%.3f",
                 list(product_features.keys()) if product_features else "none",
                 final_score
             )
         
-        # Generate explanation
+        # Generate explanation with usage context
         rationale = self._generate_rationale(
-            matched_features, mismatched_features, missing_features, feature_scores
+            matched_features, mismatched_features, missing_features, feature_scores, usage_context
         )
         
         # Calculate confidence based on feature coverage
@@ -328,12 +350,30 @@ class FeatureMatchingEngine:
     def _generate_rationale(
         self,
         matched: List[str],
-        mismatched: List[str], 
+        mismatched: List[str],
         missing: List[str],
-        feature_scores: Dict[str, Dict[str, Any]]
+        feature_scores: Dict[str, Dict[str, Any]],
+        usage_context: str = None
     ) -> str:
         """Generate human-readable explanation for the score with detailed context."""
         explanations = []
+
+        # Add context-specific introduction
+        if usage_context == "coding":
+            if matched:
+                explanations.append("💻 Perfect for coding: High resolution, accurate colors")
+            else:
+                explanations.append("💻 Coding monitor: Focus on IPS panel, 1440p resolution")
+        elif usage_context == "gaming":
+            if matched:
+                explanations.append("🎮 Gaming optimized: High refresh rate, fast response")
+            else:
+                explanations.append("🎮 Gaming monitor: Prioritizes refresh rate and response time")
+        elif usage_context == "professional":
+            if matched:
+                explanations.append("💼 Professional grade: 4K resolution, color accuracy")
+            else:
+                explanations.append("💼 Professional monitor: Focus on resolution and color fidelity")
         
         # Add matched features with quality indicators
         if matched:
@@ -366,7 +406,12 @@ class FeatureMatchingEngine:
                     elif feature == "resolution":
                         if score >= 0.90:
                             if product_val in ["4k", "1440p"] and user_val in ["1080p", "1440p"]:
-                                matched_parts.append(f"resolution={product_val} (upgrade!)")
+                                if usage_context == "coding":
+                                    matched_parts.append(f"{product_val} resolution (perfect for coding - sharp text)")
+                                elif usage_context == "professional":
+                                    matched_parts.append(f"{product_val} resolution (professional grade clarity)")
+                                else:
+                                    matched_parts.append(f"resolution={product_val} (upgrade!)")
                             else:
                                 matched_parts.append(f"resolution={product_val}")
                         else:
@@ -374,7 +419,12 @@ class FeatureMatchingEngine:
                     elif feature == "curvature":
                         matched_parts.append(f"curvature={product_val}")
                     elif feature == "panel_type":
-                        matched_parts.append(f"panel={product_val.upper()}")
+                        if usage_context == "coding" and product_val.lower() == "ips":
+                            matched_parts.append(f"IPS panel (ideal for coding - accurate colors)")
+                        elif usage_context == "gaming" and product_val.lower() in ["tn", "va"]:
+                            matched_parts.append(f"{product_val.upper()} panel (fast response for gaming)")
+                        else:
+                            matched_parts.append(f"panel={product_val.upper()}")
                     elif feature == "brand":
                         matched_parts.append(f"brand={product_val.title()}")
                     else:
@@ -794,3 +844,71 @@ class FeatureMatchingEngine:
         except (ValueError, TypeError) as e:
             log.debug(f"Error calculating feature quality for {feature_name}={feature_value}: {e}")
             return 0.3  # Some quality for unparseable features
+
+    def _calculate_usage_context_score(self, product_features: Dict[str, Any], usage_context: str, category: str) -> float:
+        """
+        Calculate score based on usage context when no specific technical requirements are provided.
+        
+        This provides meaningful product differentiation for simple queries like "coding monitor".
+        """
+        if not product_features:
+            return 0.1
+        
+        # Define context-specific preferences
+        context_preferences = {
+            "coding": {
+                "resolution": {"1440p": 0.9, "4k": 0.8, "1080p": 0.6},  # Higher resolution preferred
+                "size": {"27": 0.9, "24": 0.8, "32": 0.7},  # Medium-large sizes
+                "panel_type": {"ips": 0.9, "va": 0.7, "tn": 0.5},  # IPS for accurate colors
+                "refresh_rate": {"60": 0.8, "75": 0.9, "144": 0.7}  # Don't need super high refresh
+            },
+            "gaming": {
+                "refresh_rate": {"144": 0.9, "120": 0.8, "240": 1.0},  # High refresh preferred
+                "resolution": {"1440p": 0.9, "1080p": 0.8, "4k": 0.7},  # Balance of performance
+                "panel_type": {"tn": 0.8, "ips": 0.9, "va": 0.7}
+            },
+            "professional": {
+                "resolution": {"4k": 1.0, "1440p": 0.8, "1080p": 0.5},  # Highest resolution
+                "size": {"27": 0.8, "32": 0.9, "24": 0.6},  # Larger screens
+                "panel_type": {"ips": 1.0, "va": 0.6, "tn": 0.3}  # Color accuracy critical
+            }
+        }
+        
+        preferences = context_preferences.get(usage_context, context_preferences.get("coding", {}))
+        
+        score = 0.0
+        total_features = 0
+        
+        for feature_name, feature_prefs in preferences.items():
+            if feature_name in product_features:
+                product_value = product_features[feature_name]
+                
+                # Handle structured feature data
+                if isinstance(product_value, dict) and "value" in product_value:
+                    actual_value = str(product_value["value"]).lower()
+                else:
+                    actual_value = str(product_value).lower()
+                
+                # Find matching preference
+                feature_score = 0.0
+                for pref_value, pref_score in feature_prefs.items():
+                    if pref_value.lower() in actual_value:
+                        feature_score = max(feature_score, pref_score)
+                
+                score += feature_score
+                total_features += 1
+        
+        # Add base quality score for having features
+        base_score = min(len(product_features) * 0.02, 0.3)
+        
+        # Calculate final score
+        if total_features > 0:
+            avg_score = score / total_features
+            final_score = base_score + (avg_score * 0.7)
+        else:
+            # No matching features, use product quality scoring
+            final_score = self._calculate_product_quality_score(product_features, category)
+        
+        log.debug(f"Usage context scoring for '{usage_context}': {total_features} features, score={final_score:.3f}")
+        
+        return min(1.0, max(0.1, final_score))

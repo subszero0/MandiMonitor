@@ -1,0 +1,63 @@
+{
+  "test_suite": "PA-API Comprehensive Testing Pipeline",
+  "timestamp": "2025-08-30T02:07:21.822226",
+  "duration_seconds": 13.113245,
+  "overall_metrics": {
+    "total_tests_run": 0,
+    "total_passed": 0,
+    "total_failed": 0,
+    "total_errors": 0,
+    "performance_metrics": {},
+    "quality_metrics": {},
+    "overall_success_rate": 0
+  },
+  "phase_results": {
+    "unit_tests": {
+      "status": "PASS",
+      "tests_run": 24,
+      "passed": 24,
+      "failed": 0,
+      "success_rate": 100.0,
+      "details": "All PA-API phases unit tested successfully"
+    },
+    "integration_tests": {
+      "status": "FAIL",
+      "total_tests": 0,
+      "passed": 0,
+      "failed": 0,
+      "errors": 0,
+      "success_rate": 0,
+      "exit_code": 4
+    },
+    "simulation_tests": {
+      "status": "FAIL",
+      "total_tests": 0,
+      "passed": 0,
+      "failed": 0,
+      "errors": 0,
+      "success_rate": 0,
+      "exit_code": 4
+    },
+    "demo_tests": {
+      "status": "FAIL",
+      "total_tests": 0,
+      "passed": 0,
+      "failed": 0,
+      "errors": 0,
+      "success_rate": 0,
+      "exit_code": 4
+    },
+    "manual_tests": {
+      "status": "ERROR",
+      "error": "No module named 'tests.test_paapi_manual'"
+    }
+  },
+  "recommendations": [
+    "Review integration test failures - check API connectivity and data flow",
+    "Improve integration_tests success rate: currently 0.0%",
+    "Address chaos engineering failures - improve error handling and recovery",
+    "Improve simulation_tests success rate: currently 0.0%",
+    "Fix demo test issues - ensure manager-ready presentation quality",
+    "Improve demo_tests success rate: currently 0.0%"
+  ]
+}

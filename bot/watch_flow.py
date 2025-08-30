@@ -13,8 +13,8 @@ import telegram
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .cache_service import engine, get_price
-from .carousel import build_single_card
+from .cache_service import engine, get_price, get_price_async
+from .carousel import build_single_card, build_single_card_with_alternatives
 from .models import User, Watch
 from .paapi_factory import get_item_detailed, search_items_advanced
 from .paapi_health import is_in_cooldown, set_rate_limit_cooldown
@@ -44,23 +44,23 @@ COMMON_BRANDS = [
 ]
 
 
-async def _cached_search_items_advanced(keywords: str, item_count: int = 30, priority: str = "normal"):
+async def _cached_search_items_advanced(keywords: str, item_count: int = 30, priority: str = "normal", min_price: Optional[int] = None, max_price: Optional[int] = None):
     """
     Cache wrapper around search_items_advanced to prevent duplicate API calls.
-    
+
     Args:
-    ----
         keywords: Search keywords
-        item_count: Number of items to return
+        item_count: Number of items to retrieve
         priority: Request priority
-        
+        min_price: Minimum price in paise
+        max_price: Maximum price in paise
+
     Returns:
-    -------
         List of search results or None if error
     """
     cache_key = f"{keywords}_{item_count}_{priority}"
     current_time = time.time()
-    
+
     # Check cache first
     if cache_key in _search_cache:
         cached_data, cache_time = _search_cache[cache_key]
@@ -70,7 +70,7 @@ async def _cached_search_items_advanced(keywords: str, item_count: int = 30, pri
         else:
             # Remove expired cache entry
             del _search_cache[cache_key]
-    
+
     # Check if same search is already in progress
     if cache_key in _active_searches:
         log.debug("Search already in progress, waiting: %s", keywords)
@@ -87,11 +87,11 @@ async def _cached_search_items_advanced(keywords: str, item_count: int = 30, pri
             log.warning("Error waiting for ongoing search: %s", e)
         finally:
             _active_searches.pop(cache_key, None)
-    
+
     # Start new search
-    search_future = asyncio.create_task(_perform_search(keywords, item_count, priority))
+    search_future = asyncio.create_task(_perform_search(keywords, item_count, priority, min_price, max_price))
     _active_searches[cache_key] = search_future
-    
+
     try:
         result = await search_future
         # Cache the result
@@ -104,12 +104,14 @@ async def _cached_search_items_advanced(keywords: str, item_count: int = 30, pri
         _active_searches.pop(cache_key, None)
 
 
-async def _perform_search(keywords: str, item_count: int, priority: str):
+async def _perform_search(keywords: str, item_count: int, priority: str, min_price: Optional[int] = None, max_price: Optional[int] = None):
     """Perform the actual search operation."""
     return await search_items_advanced(
         keywords=keywords,
         item_count=item_count,
-        priority=priority
+        priority=priority,
+        min_price=min_price,
+        max_price=max_price
     )
 
 
@@ -117,33 +119,46 @@ def _filter_products_by_criteria(products: List[Dict], watch_data: dict) -> List
     """Filter products based on user criteria."""
     if not products:
         return []
-    
+
     filtered = []
     max_price = watch_data.get("max_price")
+    min_price = watch_data.get("min_price")
     min_discount = watch_data.get("min_discount")
     brand = watch_data.get("brand")
-    
+
     for product in products:
-        # Price filter
-        if max_price:
-            product_price = product.get("price", 0)
-            if product_price and product_price > max_price * 100:  # Convert to paise
+        # Price filter (supports both min and max price ranges)
+        product_price = product.get("price", 0)
+
+        # Ensure price is numeric before comparison
+        if product_price and isinstance(product_price, (int, float)):
+            product_price_paise = product_price  # Assume already in paise
+
+            # Check minimum price
+            if min_price and product_price_paise < min_price:
                 continue
-        
+
+            # Check maximum price
+            if max_price and product_price_paise > max_price:
+                continue
+        elif max_price or min_price:
+            # If we have price filters but product has no price, skip it
+            continue
+
         # Brand filter
         if brand:
             product_title = product.get("title", "").lower()
             if brand.lower() not in product_title:
                 continue
-        
+
         # Discount filter
         if min_discount:
             product_discount = product.get("discount", 0)
             if product_discount < min_discount:
                 continue
-        
+
         filtered.append(product)
-    
+
     return filtered
 
 
@@ -413,6 +428,43 @@ async def _ask_for_missing_field(
         await _finalize_watch(update, context, parsed_data)
 
 
+def _is_technical_query(query: str) -> bool:
+    """
+    Enhanced technical query detection for multi-card eligibility.
+
+    Uses the global has_technical_features function with additional checks
+    to determine if a query warrants AI-powered multi-card selection.
+    """
+    if not query or not query.strip():
+        return False
+
+    # Import the global technical detection function
+    from .product_selection_models import has_technical_features
+
+    # Use the global function as primary check
+    if has_technical_features(query):
+        return True
+
+    # Additional fallback checks for common technical patterns
+    query_lower = query.lower()
+
+    # Check for product categories that benefit from AI analysis
+    tech_categories = ["monitor", "laptop", "gaming", "computer", "phone", "display"]
+    if any(category in query_lower for category in tech_categories):
+        log.debug(f"Technical category detected in query: {query}")
+        return True
+
+    # Check for specific technical specifications
+    tech_specs = ["inch", "hz", "fps", "gb", "ssd", "hdd", "ram"]
+    spec_count = sum(1 for spec in tech_specs if spec in query_lower)
+
+    if spec_count >= 1:
+        log.debug(f"Technical specifications detected ({spec_count}) in query: {query}")
+        return True
+
+    return False
+
+
 async def _finalize_watch(
     update: Update, context: ContextTypes.DEFAULT_TYPE, watch_data: dict
 ) -> None:
@@ -445,64 +497,84 @@ async def _finalize_watch(
                     if is_in_cooldown():
                         log.warning("PA-API in cooldown, skipping product search")
                     else:
-                        # STEP 1: Search with AI-enhanced PA-API bridge
-                        from .paapi_ai_bridge import search_products_with_ai_analysis
+                        # STEP 1: Use cached search first, then AI enhancement
+                        # Use existing cached search to prevent duplicate API calls
+                        log.info(f"Searching for: '{watch_data['keywords']}'")
+                        search_results = await _cached_search_items_advanced(
+                            keywords=watch_data["keywords"],
+                            item_count=30,  # Get more products for better AI selection
+                            priority="normal",
+                            min_price=watch_data.get("min_price"),
+                            max_price=watch_data.get("max_price")
+                        )
                         
-                        try:
-                            # Use AI-enhanced search for better product data
-                            ai_search_result = await search_products_with_ai_analysis(
-                                keywords=watch_data["keywords"],
-                                search_index="Electronics", 
-                                item_count=10,  # Get more products for AI selection
-                                enable_ai_analysis=True
-                            )
+                        if search_results:
+                            log.info(f"CACHED_SEARCH: Found {len(search_results)} products for '{watch_data['keywords']}'")
                             
-                            # Use AI-enhanced products if available, fallback to original search
-                            ai_products = ai_search_result.get("products", [])
-                            if ai_products:
-                                search_results = ai_products
-                                processing_time = ai_search_result.get("processing_time_ms", 0)
-                                log.info(f"AI_SEARCH: Found {len(search_results)} products in {processing_time:.1f}ms")
-                            else:
-                                log.warning("AI_SEARCH: No AI-enhanced products, using fallback search")
-                                # Fallback to regular search
-                                search_results = await _cached_search_items_advanced(
-                                    keywords=watch_data["keywords"],
-                                    item_count=10
-                                )
-                                
-                        except Exception as e:
-                            log.warning(f"AI_SEARCH: Failed to get AI-enhanced products: {e}, using fallback search")
-                            # Fallback to regular search
-                            search_results = await _cached_search_items_advanced(
-                                keywords=watch_data["keywords"],
-                                item_count=10
-                            )
+                            # Apply AI enhancement to existing search results if enabled
+                            try:
+                                from .paapi_ai_bridge import is_ai_analysis_enabled
+                                if is_ai_analysis_enabled():
+                                    # Transform existing results to AI format without additional API calls
+                                    from .paapi_ai_bridge import transform_paapi_to_ai_format, create_mock_paapi_item_from_result
+                                    
+                                    ai_enhanced_results = []
+                                    for result in search_results[:10]:  # Process top 10 products for AI enhancement
+                                        try:
+                                            mock_item = create_mock_paapi_item_from_result(result)
+                                            ai_product = await transform_paapi_to_ai_format(mock_item)
+                                            ai_enhanced_results.append(ai_product)
+                                        except Exception as e:
+                                            log.warning(f"AI enhancement failed for {result.get('asin', 'unknown')}: {e}")
+                                            ai_enhanced_results.append(result)  # Use original
+                                    
+                                    # Use AI-enhanced results if successful
+                                    if ai_enhanced_results:
+                                        search_results = ai_enhanced_results
+                                        log.info(f"AI_ENHANCED: Processed {len(ai_enhanced_results)} products")
+                            except Exception as e:
+                                log.warning(f"AI enhancement failed, using original results: {e}")
+                                # Continue with original search_results
+                        else:
+                            log.warning("No search results found for query")
+                            search_results = []
                         
                         if search_results:
                             # STEP 2: Apply existing filters
                             filtered_products = _filter_products_by_criteria(search_results, watch_data)
                             
                             if not filtered_products:
-                                # Send no products message
-                                if watch_data.get("max_price"):
-                                    await update.effective_chat.send_message(
-                                        text=f"❌ No products found matching your criteria within ₹{watch_data['max_price']:,}.\n\n"
-                                        f"💡 *Try:*\n"
-                                        f"• Increasing your budget\n"
-                                        f"• Removing brand filters\n"
-                                        f"• Using different keywords",
-                                        parse_mode="Markdown"
-                                    )
+                                # Send no products message with price range information
+                                min_price = watch_data.get("min_price")
+                                max_price = watch_data.get("max_price")
+                                brand = watch_data.get("brand")
+
+                                if min_price and max_price:
+                                    price_msg = f"between ₹{min_price:,} and ₹{max_price:,}"
+                                elif max_price:
+                                    price_msg = f"within ₹{max_price:,}"
+                                elif min_price:
+                                    price_msg = f"above ₹{min_price:,}"
                                 else:
-                                    await update.effective_chat.send_message(
-                                        text=f"❌ No products found matching your criteria.\n\n"
-                                        f"💡 *Try:*\n"
-                                        f"• Adjusting your requirements\n"
-                                        f"• Using different keywords\n"
-                                        f"• Checking back later for new products",
-                                        parse_mode="Markdown"
-                                    )
+                                    price_msg = None
+
+                                if price_msg:
+                                    message = f"❌ No products found {price_msg}"
+                                    if brand:
+                                        message += f" from {brand.title()}"
+                                    message += f".\n\n💡 *Try:*\n• Adjusting your price range\n"
+                                else:
+                                    message = f"❌ No products found matching your criteria"
+                                    if brand:
+                                        message += f" from {brand.title()}"
+                                    message += f".\n\n💡 *Try:*\n• Adjusting your requirements\n"
+
+                                message += "• Using different keywords\n• Checking back later for new products"
+
+                                await update.effective_chat.send_message(
+                                    text=message,
+                                    parse_mode="Markdown"
+                                )
                                 return
                             
                             # STEP 3: Use intelligent product selection with AI integration (R7: with rollout)
@@ -534,10 +606,9 @@ async def _finalize_watch(
                                 return
                                 
                 except Exception as e:
-                    log.error(f"Watch flow AI integration error: {e}")
-                    # Fallback to existing logic
-                    await _finalize_watch_fallback(update, context, watch_data)
-                    return
+                    log.error(f"Search error: {e}")
+                    # Continue with empty search results instead of infinite fallback
+                    search_results = []
 
             # If we have an ASIN (from URL or found via search), create the watch directly
             watch = Watch(
@@ -609,11 +680,15 @@ async def smart_product_selection_with_ai(
             "ai_enhanced_carousel",
             user_id,
             multi_card_enabled=enable_multi_card,
-            product_count=len(products)
+            product_count=len(products),
+            has_technical_features=bool(user_features)
         )
         
         # Check if we should use multi-card experience (Phase 6)
-        if enable_multi_card and len(products) >= 3 and user_features and enhanced_carousel_enabled:
+        # Enhanced: More permissive conditions for multi-card selection
+        has_features_or_tech_query = user_features or self._is_technical_query(user_query)
+
+        if enable_multi_card and len(products) >= 3 and has_features_or_tech_query and enhanced_carousel_enabled:
             from .ai.enhanced_product_selection import EnhancedFeatureMatchModel
             
             log.info(f"Attempting multi-card experience (enhanced_carousel={enhanced_carousel_enabled})")
@@ -772,6 +847,76 @@ async def send_multi_card_experience(
         await send_single_card_experience(update, context, selection_result, watch_data)
 
 
+async def send_search_refinement_options(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    watch_data: Dict
+) -> None:
+    """Send search refinement options to help users narrow down their search."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    # Extract current search criteria
+    keywords = watch_data.get("keywords", "")
+    max_price = watch_data.get("max_price")
+    min_discount = watch_data.get("min_discount")
+
+    # Create refinement options based on the original query
+    refinement_message = """🔧 **Not quite what you're looking for?**
+
+Try refining your search with these quick options:"""
+
+    keyboard_buttons = []
+
+    # Brand-specific refinements
+    if "monitor" in keywords.lower():
+        keyboard_buttons.append([
+            InlineKeyboardButton("🏢 Dell Monitors", callback_data=f"refine_brand:dell:{max_price}"),
+            InlineKeyboardButton("🏢 LG Monitors", callback_data=f"refine_brand:lg:{max_price}"),
+            InlineKeyboardButton("🏢 Samsung Monitors", callback_data=f"refine_brand:samsung:{max_price}")
+        ])
+
+    # Size refinements for monitors
+    if "monitor" in keywords.lower():
+        keyboard_buttons.append([
+            InlineKeyboardButton("📺 24″ Monitors", callback_data=f"refine_size:24:{max_price}"),
+            InlineKeyboardButton("📺 27″ Monitors", callback_data=f"refine_size:27:{max_price}"),
+            InlineKeyboardButton("📺 32″ Monitors", callback_data=f"refine_size:32:{max_price}")
+        ])
+
+    # Feature refinements
+    if "monitor" in keywords.lower():
+        keyboard_buttons.append([
+            InlineKeyboardButton("🎨 IPS Panel", callback_data=f"refine_panel:ips:{max_price}"),
+            InlineKeyboardButton("⚡ 144Hz+", callback_data=f"refine_refresh:144:{max_price}"),
+            InlineKeyboardButton("🔍 4K Resolution", callback_data=f"refine_resolution:4k:{max_price}")
+        ])
+
+    # Price refinements
+    if max_price:
+        lower_price = int(max_price * 0.8)  # 20% lower
+        higher_price = int(max_price * 1.2)  # 20% higher
+        keyboard_buttons.append([
+            InlineKeyboardButton(f"💰 Under ₹{lower_price:,}", callback_data=f"refine_price:{lower_price}:{max_price}"),
+            InlineKeyboardButton(f"💰 Under ₹{higher_price:,}", callback_data=f"refine_price:{higher_price}:{max_price}")
+        ])
+
+    # Add a cancel option
+    keyboard_buttons.append([
+        InlineKeyboardButton("❌ Keep Current Watch", callback_data="refine_cancel")
+    ])
+
+    keyboard = InlineKeyboardMarkup(keyboard_buttons)
+
+    try:
+        await update.effective_chat.send_message(
+            text=refinement_message,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        log.error("Failed to send refinement options: %s", e)
+
+
 async def send_single_card_experience(
     update: Update, 
     context: ContextTypes.DEFAULT_TYPE, 
@@ -828,18 +973,23 @@ async def send_single_card_experience(
         
         # Get current price and build card
         try:
-            current_price = await get_price(asin)
+            current_price = await get_price_async(asin)
         except Exception as price_error:
             log.warning(f"Failed to get current price for {asin}: {price_error}")
-            current_price = selected_product.get("price", "Price not available")
+            # Get price from product data, default to 0 if not available
+            fallback_price = selected_product.get("price", 0)
+            current_price = fallback_price if isinstance(fallback_price, (int, float)) else 0
         
-        # Build single card
-        card_data = build_single_card(
+        # Build single card with alternatives option
+        # Ensure current_price is an integer for build_single_card
+        price_for_card = current_price if isinstance(current_price, (int, float)) else 0
+        caption, keyboard = build_single_card_with_alternatives(
             title=selected_product.get("title", "Product"),
-            price=str(current_price),
+            price=int(price_for_card),
             image=selected_product.get("image", ""),
             asin=asin,
-            watch_id=watch.id
+            watch_id=watch.id,
+            alternatives_count=min(3, len(products) - 1)  # Up to 3 alternatives
         )
         
         # Send AI message based on selection type
@@ -847,13 +997,14 @@ async def send_single_card_experience(
         ai_metadata = selection_result.get("metadata", {})
         
         if ai_metadata.get("ai_selection"):
-            confidence = ai_metadata.get("ai_confidence", 0)
+            # Use the score for display confidence (more meaningful for users)
+            display_confidence = ai_metadata.get("ai_score", 0)
             rationale = ai_metadata.get("ai_rationale", "")
             ai_message = f"""🎯 **Smart Match Found!**
 
 I analyzed your requirements and found this product that best matches your needs.
 
-🤖 **AI Confidence**: {confidence:.0%}
+🤖 **AI Confidence**: {display_confidence:.0%}
 💡 **Why this product**: {rationale}
 
 ✅ **Watch created successfully!** You'll get alerts when the price drops or deals become available."""
@@ -869,13 +1020,26 @@ Selected based on customer ratings and popularity.
             text=ai_message,
             parse_mode="Markdown"
         )
-        
-        await update.effective_chat.send_photo(
-            photo=card_data["image"],
-            caption=card_data["caption"],
-            reply_markup=card_data.get("keyboard"),
-            parse_mode="Markdown"
-        )
+
+        # Only send photo if we have a valid image URL
+        image_url = selected_product.get("image", "")
+        if image_url and image_url.strip():
+            await update.effective_chat.send_photo(
+                photo=image_url,
+                caption=caption,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        else:
+            # Fallback: send as text message with keyboard if no image
+            await update.effective_chat.send_message(
+                text=caption,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+
+        # Send refinement options
+        await send_search_refinement_options(update, context, watch_data)
         
         # Log single-card experience
         from .ai_performance_monitor import log_ai_selection
@@ -933,7 +1097,9 @@ async def _finalize_watch_fallback(
                 try:
                     search_results = await _cached_search_items_advanced(
                         keywords=watch_data["keywords"],
-                        item_count=10
+                        item_count=10,
+                        min_price=watch_data.get("min_price"),
+                        max_price=watch_data.get("max_price")
                     )
                     
                     if search_results:

@@ -1,0 +1,50 @@
+{
+  "timestamp": "2025-08-30T16:13:53.127169",
+  "tests": {
+    "min_price_only": {
+      "page_1": {
+        "request": {
+          "method": "search_items",
+          "timestamp": "2025-08-30T16:13:53.147182",
+          "args": [],
+          "kwargs": {}
+        },
+        "response": {
+          "success": false,
+          "error": "DefaultApi.search_items() missing 1 required positional argument: 'search_items_request'",
+          "execution_time": 0.0
+        }
+      }
+    },
+    "max_price_only": {
+      "page_1": {
+        "request": {
+          "method": "search_items",
+          "timestamp": "2025-08-30T16:13:56.158833",
+          "args": [],
+          "kwargs": {}
+        },
+        "response": {
+          "success": false,
+          "error": "DefaultApi.search_items() missing 1 required positional argument: 'search_items_request'",
+          "execution_time": 0.0
+        }
+      }
+    },
+    "both_filters": {
+      "page_1": {
+        "request": {
+          "method": "search_items",
+          "timestamp": "2025-08-30T16:13:59.164491",
+          "args": [],
+          "kwargs": {}
+        },
+        "response": {
+          "success": false,
+          "error": "DefaultApi.search_items() missing 1 required positional argument: 'search_items_request'",
+          "execution_time": 0.0
+        }
+      }
+    }
+  }
+}

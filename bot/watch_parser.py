@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from .patterns import PAT_ASIN, PAT_BRAND, PAT_DISCOUNT, PAT_PRICE_UNDER
+from .patterns import PAT_ASIN, PAT_BRAND, PAT_DISCOUNT, PAT_PRICE_UNDER, PAT_PRICE_RANGE
 
 
 def parse_watch(text: str) -> Dict[str, Any]:
@@ -38,18 +38,54 @@ def parse_watch(text: str) -> Dict[str, Any]:
     if match := PAT_BRAND.search(text):
         brand = match.group(1).lower().replace("-", " ").replace("_", " ")
 
-    # Extract maximum price
+    # Extract maximum price (supports both "under X" and "between X and Y" formats)
     max_price = None
+    min_price = None
+
+    # Try "under/below" pattern first
     if match := PAT_PRICE_UNDER.search(text):
         price_str = match.group(1).replace(",", "").replace(" ", "")
         try:
             if price_str.endswith("k"):
-                max_price = int(float(price_str[:-1]) * 1000)
+                max_price_rupees = int(float(price_str[:-1]) * 1000)
             elif price_str.endswith("000"):
-                max_price = int(price_str)
+                max_price_rupees = int(price_str)
             else:
-                max_price = int(price_str)
+                max_price_rupees = int(price_str)
+
+            # Convert rupees to paise for PA-API
+            max_price = max_price_rupees * 100
         except (ValueError, TypeError):
+            max_price = None
+    # Try "between X and Y" pattern
+    elif match := PAT_PRICE_RANGE.search(text):
+        min_price_str = match.group(1).replace(",", "").replace(" ", "")
+        max_price_str = match.group(2).replace(",", "").replace(" ", "")
+        try:
+            # Parse minimum price and convert to paise (PA-API requirement)
+            if min_price_str.endswith("k"):
+                min_price_rupees = int(float(min_price_str[:-1]) * 1000)
+            elif min_price_str.endswith("000"):
+                min_price_rupees = int(min_price_str)
+            else:
+                min_price_rupees = int(min_price_str)
+
+            # Convert rupees to paise for PA-API
+            min_price = min_price_rupees * 100
+
+            # Parse maximum price and convert to paise (PA-API requirement)
+            if max_price_str.endswith("k"):
+                max_price_rupees = int(float(max_price_str[:-1]) * 1000)
+            elif max_price_str.endswith("000"):
+                max_price_rupees = int(max_price_str)
+            else:
+                max_price_rupees = int(max_price_str)
+
+            # Convert rupees to paise for PA-API
+            max_price = max_price_rupees * 100
+
+        except (ValueError, TypeError):
+            min_price = None
             max_price = None
 
     # Extract minimum discount percentage
@@ -64,6 +100,7 @@ def parse_watch(text: str) -> Dict[str, Any]:
         "asin": asin,
         "brand": brand,
         "max_price": max_price,
+        "min_price": min_price,  # New field for price ranges
         "min_discount": min_discount,
         "keywords": text.strip(),
     }

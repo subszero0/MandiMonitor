@@ -21,6 +21,7 @@ Architecture:
 
 import asyncio
 import time
+import traceback
 from typing import Dict, List, Any, Optional, Union
 from logging import getLogger
 
@@ -35,6 +36,14 @@ from .config import settings
 from .errors import QuotaExceededError
 
 log = getLogger(__name__)
+
+# Simple cache to prevent duplicate AI search requests
+_ai_search_cache = {}
+_ai_cache_ttl = 300  # 5 minutes cache
+
+# Recursion prevention
+_ai_search_call_stack = set()
+_ai_recursion_lock = asyncio.Lock()
 
 # Enhanced resource requests optimized for AI analysis
 # These resources prioritize technical specifications and structured data
@@ -271,8 +280,10 @@ def extract_brand(paapi_item: Any) -> Optional[str]:
             
             by_line_info = paapi_item.item_info.by_line_info
             if hasattr(by_line_info, 'brand') and by_line_info.brand:
-                return getattr(by_line_info.brand, 'display_value', '')
-    except (AttributeError, TypeError) as e:
+                brand_value = getattr(by_line_info.brand, 'display_value', None)
+                if brand_value:
+                    return brand_value
+    except (AttributeError, TypeError, KeyError) as e:
         log.debug(f"Failed to extract brand: {e}")
     return None
 
@@ -404,15 +415,18 @@ async def search_products_with_ai_analysis(
     search_index: str = "Electronics",
     item_count: int = 10,
     enable_ai_analysis: bool = True,
-    priority: str = "normal"
+    priority: str = "normal",
+    recursion_depth: int = 0,
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Search products with optional AI feature analysis.
-    
+
     This function provides enhanced PA-API search capabilities optimized for AI analysis
     by requesting additional resources (TechnicalInfo, Features) and transforming
     responses into AI-compatible format.
-    
+
     Args:
     ----
         keywords: Search terms
@@ -420,7 +434,10 @@ async def search_products_with_ai_analysis(
         item_count: Number of items to return (1-10)
         enable_ai_analysis: Whether to use AI-enhanced resources
         priority: Request priority for rate limiting
-        
+        recursion_depth: Internal parameter to track recursion depth
+        min_price: Minimum price in paise (optional)
+        max_price: Maximum price in paise (optional)
+
     Returns:
     -------
         Dict containing:
@@ -433,42 +450,129 @@ async def search_products_with_ai_analysis(
         }
     """
     start_time = time.time()
-    
+
+    # ===== DETAILED PRICE FILTER LOGGING =====
+    log.info("🔍 AI BRIDGE: search_products_with_ai_analysis called with:")
+    log.info("   keywords='%s'", keywords)
+    log.info("   search_index='%s'", search_index)
+    log.info("   item_count=%d", item_count)
+    log.info("   enable_ai_analysis=%s", enable_ai_analysis)
+    log.info("   priority='%s'", priority)
+    log.info("   recursion_depth=%d", recursion_depth)
+    log.info("   min_price=%s (%s)", min_price, f"₹{min_price/100:.0f}" if min_price else "None")
+    log.info("   max_price=%s (%s)", max_price, f"₹{max_price/100:.0f}" if max_price else "None")
+
+    # ===== RECURSION DETECTION & PREVENTION =====
+    call_signature = f"ai_search:{keywords[:50]}:{search_index}:{recursion_depth}"
+
+    async with _ai_recursion_lock:
+        if call_signature in _ai_search_call_stack:
+            log.critical("🔄 INFINITE RECURSION DETECTED in AI search!")
+            log.critical(f"Call signature: {call_signature}")
+            log.critical(f"Current call stack: {_ai_search_call_stack}")
+            log.critical("Returning empty results to prevent infinite loop")
+            return {
+                "products": [],
+                "raw_paapi_response": None,
+                "ai_analysis_enabled": enable_ai_analysis,
+                "processing_time_ms": 0.0,
+                "metadata": {
+                    "recursion_detected": True,
+                    "call_signature": call_signature,
+                    "error": "Infinite recursion prevented"
+                }
+            }
+
+        if recursion_depth >= 3:
+            log.warning(f"⚠️ MAX RECURSION DEPTH ({recursion_depth}) reached for AI search")
+            return {
+                "products": [],
+                "raw_paapi_response": None,
+                "ai_analysis_enabled": enable_ai_analysis,
+                "processing_time_ms": 0.0,
+                "metadata": {
+                    "max_depth_exceeded": True,
+                    "recursion_depth": recursion_depth,
+                    "error": "Maximum recursion depth exceeded"
+                }
+            }
+
+        _ai_search_call_stack.add(call_signature)
+        log.debug(f"🔍 AI SEARCH ENTRY: {call_signature} (depth={recursion_depth})")
+
+    # Check cache first to prevent duplicate requests
+    cache_key = f"{keywords}_{search_index}_{item_count}_{enable_ai_analysis}"
+    current_time = time.time()
+
+    if cache_key in _ai_search_cache:
+        cached_data, cache_time = _ai_search_cache[cache_key]
+        if current_time - cache_time < _ai_cache_ttl:
+            log.info(f"📋 AI search cache hit for: '{keywords}'")
+            return cached_data
+        else:
+            # Remove expired cache entry
+            del _ai_search_cache[cache_key]
+
     # Choose appropriate resources based on AI analysis flag
     resources = AI_SEARCH_RESOURCES if enable_ai_analysis else DEFAULT_SEARCH_RESOURCES
-    
+
     log.info(f"Searching products with AI analysis {'enabled' if enable_ai_analysis else 'disabled'}: '{keywords}'")
-    
+
     try:
-        # Import here to avoid circular imports
+        # ===== DETAILED DEBUG LOGGING =====
+        log.info(f"🔍 AI SEARCH DEBUG: Starting search for '{keywords}'")
+        log.info(f"🔍 AI SEARCH DEBUG: search_index={search_index}, item_count={item_count}")
+        log.info(f"🔍 AI SEARCH DEBUG: enable_ai_analysis={enable_ai_analysis}, recursion_depth={recursion_depth}")
+        log.info(f"🔍 AI SEARCH DEBUG: Current call stack size: {len(_ai_search_call_stack)}")
+        log.info(f"🔍 AI SEARCH DEBUG: Call stack: {list(_ai_search_call_stack)}")
+
+        # Import the PA-API client to perform actual search
+        log.debug("🔍 AI SEARCH DEBUG: Importing PA-API client...")
         from .paapi_official import create_official_paapi_client
-        from .api_rate_limiter import acquire_api_permission
-        
-        # Acquire API permission for rate limiting
-        await acquire_api_permission(priority)
-        
+
         # Create PA-API client
+        log.debug("🔍 AI SEARCH DEBUG: Creating PA-API client...")
         paapi_client = create_official_paapi_client()
-        
-        # Execute search with enhanced resources
-        paapi_response = await execute_search_request(
-            paapi_client, keywords, search_index, item_count, resources
+        log.debug("🔍 AI SEARCH DEBUG: PA-API client created successfully")
+
+        # Perform the actual search with enhanced resources
+        log.info(f"🔍 AI SEARCH DEBUG: Calling search_items_advanced with recursion_depth={recursion_depth + 1}")
+        log.info("🔍 AI SEARCH DEBUG: Price filters being passed to PA-API:")
+        log.info("   min_price=%s", min_price)
+        log.info("   max_price=%s", max_price)
+
+        search_results = await paapi_client.search_items_advanced(
+            keywords=keywords,
+            search_index=search_index,
+            item_count=item_count,
+            priority=priority,
+            min_price=min_price,
+            max_price=max_price,
+            enable_ai_analysis=False  # CRITICAL: Prevent recursion by disabling AI in nested calls
         )
-        
-        # Transform results to AI format
+        log.info(f"🔍 AI SEARCH DEBUG: search_items_advanced returned {len(search_results) if search_results else 0} results")
+
+        # Transform PA-API results to AI-compatible format
+        log.debug("🔍 AI SEARCH DEBUG: Starting result transformation...")
         ai_products = []
-        if hasattr(paapi_response, 'search_result') and paapi_response.search_result:
-            if hasattr(paapi_response.search_result, 'items') and paapi_response.search_result.items:
-                for item in paapi_response.search_result.items:
-                    try:
-                        ai_product = await transform_paapi_to_ai_format(item)
-                        ai_products.append(ai_product)
-                    except Exception as e:
-                        log.warning(f"Failed to transform item {getattr(item, 'asin', 'unknown')}: {e}")
-                        continue
-        
+        for i, result in enumerate(search_results):
+            try:
+                log.debug(f"🔍 AI SEARCH DEBUG: Transforming result {i+1}/{len(search_results)}: {result.get('asin', 'unknown')}")
+                # Convert result to mock PA-API format for transformation
+                mock_item = create_mock_paapi_item_from_result(result)
+                ai_product = await transform_paapi_to_ai_format(mock_item)
+                ai_products.append(ai_product)
+                log.debug(f"🔍 AI SEARCH DEBUG: Successfully transformed result {i+1}")
+            except Exception as e:
+                log.warning(f"🔍 AI SEARCH DEBUG: Failed to transform search result {i+1}: {e}")
+                # Include original result as fallback
+                ai_products.append(result)
+
+        paapi_response = search_results
+        log.info(f"🔍 AI SEARCH DEBUG: Transformation complete. {len(ai_products)} AI products created")
+
         processing_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-        
+
         result = {
             "products": ai_products,
             "raw_paapi_response": paapi_response,
@@ -481,18 +585,25 @@ async def search_products_with_ai_analysis(
                 "returned_count": len(ai_products),
                 "resources_used": len(resources),
                 "api_version": "paapi5_python_sdk",
-                "bridge_version": "1.0.0"
+                "bridge_version": "1.0.0",
+                "recursion_depth": recursion_depth,
+                "call_signature": call_signature
             }
         }
-        
-        log.info(f"AI search completed: {len(ai_products)} products in {processing_time:.1f}ms")
+
+        log.info(f"✅ AI search completed: {len(ai_products)} products in {processing_time:.1f}ms (depth={recursion_depth})")
+
+        # Cache the successful result
+        _ai_search_cache[cache_key] = (result, current_time)
+
         return result
-        
+
     except QuotaExceededError:
-        log.warning(f"PA-API quota exceeded for search: {keywords}")
+        log.warning(f"💰 PA-API quota exceeded for search: {keywords}")
         raise
     except Exception as e:
-        log.error(f"AI search failed for '{keywords}': {e}")
+        log.error(f"❌ AI search failed for '{keywords}' (depth={recursion_depth}): {e}")
+        log.error(f"❌ AI search stack trace: {traceback.format_exc()}")
         # Return empty result instead of failing completely
         processing_time = (time.time() - start_time) * 1000
         return {
@@ -503,9 +614,20 @@ async def search_products_with_ai_analysis(
             "metadata": {
                 "search_keywords": keywords,
                 "error": str(e),
-                "fallback_used": True
+                "fallback_used": True,
+                "recursion_depth": recursion_depth,
+                "call_signature": call_signature
             }
         }
+    finally:
+        # ===== CLEANUP: Remove call signature from stack =====
+        async with _ai_recursion_lock:
+            if call_signature in _ai_search_call_stack:
+                _ai_search_call_stack.remove(call_signature)
+                log.debug(f"🧹 AI SEARCH CLEANUP: Removed {call_signature} from call stack")
+                log.debug(f"🧹 AI SEARCH CLEANUP: Remaining stack size: {len(_ai_search_call_stack)}")
+            else:
+                log.warning(f"🧹 AI SEARCH CLEANUP: Call signature {call_signature} not found in stack!")
 
 
 async def execute_search_request(

@@ -58,6 +58,58 @@ def build_single_card(
     return caption, keyboard
 
 
+def build_single_card_with_alternatives(
+    title: str, price: int, image: str, asin: str, watch_id: int, alternatives_count: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build a single product card with alternatives option.
+
+    Args:
+    ----
+        title: Product title/name
+        price: Current price in rupees (already in correct format)
+        image: Product image URL
+        asin: Amazon ASIN for affiliate link
+        watch_id: Watch ID for click tracking
+        alternatives_count: Number of alternative products available
+
+    Returns:
+    -------
+        Tuple of (caption_text, keyboard_markup)
+
+    """
+    # Escape Markdown special characters in title to prevent parsing errors
+    escaped_title = title.replace("*", "\\*").replace("_", "\\_").replace("[", "\\[").replace("]", "\\]").replace("(", "\\(").replace(")", "\\)").replace("~", "\\~").replace("`", "\\`").replace(">", "\\>").replace("#", "\\#").replace("+", "\\+").replace("-", "\\-").replace("=", "\\=").replace("|", "\\|").replace("{", "\\{").replace("}", "\\}").replace(".", "\\.").replace("!", "\\!")
+
+    # Build caption with proper price formatting (price is already in rupees, not paise)
+    # Check if price needs conversion from paise to rupees
+    display_price = price // 100 if price > 10000 else price
+    caption = f"📱 {escaped_title}\n💰 ₹{display_price:,}\n\n🔥 Current best price!"
+
+    # Create keyboard with buy button and alternatives
+    keyboard_buttons = [
+        [
+            InlineKeyboardButton(
+                text="🛒 BUY NOW",
+                callback_data=f"click:{watch_id}:{asin}"
+            )
+        ]
+    ]
+
+    # Add alternatives button if there are alternatives available
+    if alternatives_count > 0:
+        alternatives_text = f"🔄 See {alternatives_count} Alternative{'s' if alternatives_count > 1 else ''}"
+        keyboard_buttons.append([
+            InlineKeyboardButton(
+                text=alternatives_text,
+                callback_data=f"alternatives:{watch_id}:{asin}"
+            )
+        ])
+
+    keyboard = InlineKeyboardMarkup(keyboard_buttons)
+
+    return caption, keyboard
+
+
 def build_deal_card(
     title: str,
     current_price: int,

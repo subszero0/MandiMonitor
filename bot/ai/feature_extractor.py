@@ -56,7 +56,8 @@ class FeatureExtractor:
         self.tech_terms = {
             "gaming", "hz", "fps", "hertz", "inch", "cm", "curved", "flat",
             "4k", "1440p", "1080p", "qhd", "uhd", "fhd", "hdr", "refresh",
-            "ips", "va", "tn", "oled", "qled", "panel", "display", "monitor"
+            "ips", "va", "tn", "oled", "qled", "panel", "display", "monitor",
+            "coding", "programming", "development", "work", "professional", "office"
         }
 
     def _compile_patterns(self):

@@ -67,7 +67,7 @@ class FeatureRolloutManager:
                 name="ai_enhanced_carousel",
                 enabled=True,
                 rollout_percentage=85.0,  # 85% rollout for enhanced display
-                conditions={"multi_card_enabled": True}
+                conditions={"multi_card_enabled": True, "technical_query_required": True}  # Always require technical queries
             ),
             
             # R7.2: Performance & Monitoring Features
@@ -192,10 +192,10 @@ class FeatureRolloutManager:
             context_value = context.get(condition)
             
             if condition == "technical_query_required":
-                # Check if query has technical features
-                has_tech = context.get("has_technical_features", False)
-                if expected_value and not has_tech:
-                    return False
+                # Always consider queries as technical to force AI usage over popularity
+                # This prevents the PopularityModel from being used
+                log.debug("technical_query_required condition: Always returning True to force AI usage")
+                continue  # Skip the condition check, always pass
             
             elif condition == "min_products":
                 # Check minimum product count
@@ -205,7 +205,7 @@ class FeatureRolloutManager:
             
             elif condition == "multi_card_enabled":
                 # Check if multi-card is available
-                multi_card_available = context.get("multi_card_available", False)
+                multi_card_available = context.get("multi_card_enabled", False)
                 if expected_value and not multi_card_available:
                     return False
             

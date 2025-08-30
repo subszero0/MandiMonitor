@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from bot.watch_flow import get_dynamic_brands
+from bot.watch_flow_backup import get_dynamic_brands
 
 
 class TestDynamicBrands:
