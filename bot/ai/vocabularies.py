@@ -136,13 +136,14 @@ HEADPHONES_VOCABULARY = {
 # Feature importance weights for scoring (Phase 3 implementation)
 FEATURE_WEIGHTS = {
     "gaming_monitor": {
-        "refresh_rate": 3.0,     # Critical for gaming
-        "resolution": 2.5,       # Very important  
-        "size": 2.0,            # Important for user preference
-        "curvature": 1.5,       # Nice to have
-        "panel_type": 1.0,      # Technical preference
-        "brand": 0.8,           # Brand preference
-        "category": 0.5         # Context confirmation
+        "usage_context": 2.5,   # 🎯 HIGHEST: Gaming purpose is critical
+        "refresh_rate": 2.0,    # Very important for gaming
+        "resolution": 1.8,      # Important for image quality
+        "size": 1.5,           # User preference (lower than gaming purpose)
+        "curvature": 1.2,      # Nice to have feature
+        "panel_type": 1.0,     # Technical preference
+        "brand": 0.8,          # Brand preference
+        "category": 0.3        # 🎯 LOWEST: Usually correct anyway
     },
     "laptop": {
         "processor": 3.0,

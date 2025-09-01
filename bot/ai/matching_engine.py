@@ -127,9 +127,9 @@ class FeatureMatchingEngine:
         
         # Score each user requirement
         for feature_name, user_value in user_features.items():
-            # Skip metadata fields
-            if feature_name in ["confidence", "processing_time_ms", "technical_query", 
-                               "category_detected", "matched_features_count", "technical_density", "category", "usage_context"]:
+            # Skip pure metadata fields (not user requirements)
+            if feature_name in ["confidence", "processing_time_ms", "technical_query",
+                               "category_detected", "matched_features_count", "technical_density"]:
                 continue
                 
             weight = weights.get(feature_name, 1.0)
@@ -157,17 +157,16 @@ class FeatureMatchingEngine:
                 
                 total_score += feature_score * weight
             else:
-                # Feature missing from product
+                # Feature missing from product - NO PENALTY (removed unfair scoring)
                 missing_features.append(feature_name)
-                # Apply partial penalty for missing important features
-                if weight > 2.0:  # Important features
-                    penalty_weight = weight * 0.3  # 30% penalty
-                    total_weight += penalty_weight
+                # Note: Removed penalty system that created artificial score differences
         
         # Calculate final score
         if total_weight > 0:
             final_score = total_score / total_weight
-            log.debug(f"Feature-based scoring: total_score={total_score:.3f}, total_weight={total_weight:.3f}, final={final_score:.3f}")
+            log.info(f"🎯 SCORING_BREAKDOWN: total_score={total_score:.3f}, total_weight={total_weight:.3f}, final={final_score:.3f}")
+            log.info(f"   📊 Feature_scores: {feature_scores}")
+            log.info(f"   ✅ Matched: {matched_features}, ❌ Missing: {missing_features}")
         else:
             # If no specific user requirements, use product quality scoring
             # This allows AI to rank products by their technical specifications
@@ -289,7 +288,11 @@ class FeatureMatchingEngine:
                 if feature_name == "refresh_rate":
                     user_rate = int(user_str)
                     product_rate = int(product_str)
-                    
+
+                    # 🎯 EXACT MATCH: Same refresh rate gets perfect score
+                    if user_rate == product_rate:
+                        return 1.0
+
                     # Check if within tolerance tier
                     acceptable_rates = self.categorical_tolerance[feature_name].get(user_rate, [])
                     if product_rate in acceptable_rates:
@@ -300,6 +303,10 @@ class FeatureMatchingEngine:
                             return 0.85  # Acceptable downgrade
                             
                 elif feature_name == "resolution":
+                    # 🎯 EXACT MATCH: Same resolution gets perfect score
+                    if user_str == product_str:
+                        return 1.0
+
                     acceptable_resolutions = self.categorical_tolerance[feature_name].get(user_str, [])
                     if product_str in acceptable_resolutions:
                         return 0.90  # Resolution upgrade is good
