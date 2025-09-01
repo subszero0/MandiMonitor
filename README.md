@@ -94,12 +94,15 @@ docker compose up -d
 - **Click Analytics**: Affiliate link engagement monitoring
 - **Database Bootstrap**: Automated table creation and migration support
 
-### AI-Powered Intelligence (Phase 7) - Enhanced Scoring System
+### AI-Powered Intelligence (Phase 7) - Hybrid Value Scoring System
 - **🎯 Smart Feature Extraction**: Extracts category, usage_context, price from product data
-- **⚖️ Intelligent Scoring**: Context-aware scoring with gaming-focused weights
-- **📊 Value-Based Ranking**: Considers price-to-performance ratios for fair recommendations
-- **🎮 Gaming Optimization**: Higher weights for gaming-related features when detected
-- **🔍 Transparent Scoring**: Detailed breakdown of why products are recommended
+- **💰 Hybrid Value Scoring**: Combines technical merit, price value, budget fit, excellence bonuses
+- **⚖️ Context-Aware Weighting**: Gaming vs general use with different scoring priorities
+- **📊 Performance-per-Rupee**: Rewards products with better value ratios
+- **🏆 Technical Excellence**: Bonuses for superior specs (180Hz+, 4K, optimal size)
+- **🎮 Gaming Optimization**: Technical performance prioritized for gaming context (45% weight)
+- **🔍 Transparent Breakdowns**: Detailed component analysis in scoring logs
+- **📈 Fair Differentiation**: Products scored by actual merit, not data completeness
 - **Predictive Engine**: Machine learning models for user interest prediction
 - **Collaborative Filtering**: User behavior analysis for personalized recommendations
 - **Deal Success Prediction**: AI-based probability scoring for deal quality
