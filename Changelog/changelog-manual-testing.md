@@ -292,7 +292,145 @@ def generate_score_explanation(score_breakdown):
 - Transparent decision-making process
 
 ### **Verification Status**
-- [ ] Unit tests for transparency system
+- [x] Unit tests for transparency system
+- [x] Integration test with detailed explanations
+- [x] Manual testing with score breakdown display
+- [x] User experience validation
+
+---
+
+## 🎯 2025-09-01 - AI SCORING SYSTEM OVERHAUL (PHASE 3)
+
+### **Problem Identified**
+**Issue**: Hybrid scoring implemented but users see only final scores without understanding why
+**User Impact**: Users don't understand why products are recommended or how scores are calculated
+**Symptoms**: Opaque decision-making process, no component breakdowns, technical jargon
+
+### **Phase 3 Implementation: Enhanced Transparency System**
+
+#### **1. Enhanced Score Breakdown Logging**
+**File**: `bot/ai/matching_engine.py`
+**Changes**: Add comprehensive scoring component logging
+
+```python
+# Enhanced logging in calculate_hybrid_score
+log.info(f"🎯 HYBRID_SCORE_BREAKDOWN: {final_score:.3f} for {product_features.get('title', 'Unknown Product')}")
+log.info(f"   📊 Components: Tech={tech_score:.3f} | Value={value_score:.3f} | Budget={budget_score:.3f} | Excellence={excellence_bonus:.3f}")
+log.info(f"   ⚖️ Weights: Tech={weights['technical']:.0%} | Value={weights['value']:.0%} | Budget={weights['budget']:.0%} | Excellence={weights['excellence']:.0%}")
+log.info(f"   💰 Price: ₹{product_features.get('price', 0):,} | Performance: {tech_performance:.3f}")
+log.info(f"   🎮 Context: {'Gaming' if 'gaming' in user_features.get('usage_context', '').lower() else 'General'}")
+```
+
+#### **2. User-Friendly Score Explanations**
+**File**: `bot/ai/enhanced_product_selection.py`
+**Changes**: Convert technical scores to understandable explanations
+
+```python
+def generate_user_explanations(score_breakdown, product_features):
+    explanations = []
+
+    # Technical excellence explanations
+    if score_breakdown["excellence_bonus"] > 0.1:
+        if product_features.get("refresh_rate", 0) >= 180:
+            explanations.append("⚡ Blazing fast 180Hz+ refresh rate for smooth gaming")
+        if "4k" in product_features.get("resolution", "").lower():
+            explanations.append("🎯 Ultra-sharp 4K resolution for crystal clear visuals")
+
+    # Value explanations
+    if score_breakdown["value_score"] > 0.9:
+        explanations.append("💰 Excellent value - great performance for the price")
+    elif score_breakdown["value_score"] > 0.7:
+        explanations.append("👍 Good value proposition with solid performance")
+
+    # Budget explanations
+    if score_breakdown["budget_score"] > 0.8:
+        explanations.append("📊 Perfectly fits within your budget")
+    elif score_breakdown["budget_score"] < 0.5:
+        explanations.append("⚠️ Slightly over budget but worth considering")
+
+    return explanations
+```
+
+#### **3. Enhanced Comparison Tables**
+**File**: `bot/ai/multi_card_selector.py`
+**Changes**: More informative product comparison tables
+
+```python
+def build_enhanced_comparison_table(products, score_breakdowns):
+    """Build comparison table with score insights and explanations"""
+
+    table = {
+        "score_analysis": {
+            "highest_score_product": max(products, key=lambda p: p.get('hybrid_score', 0))['asin'],
+            "score_range": f"{min_score:.2f} - {max_score:.2f}",
+            "key_differentiators": identify_key_differences(products),
+            "recommendation_reason": generate_recommendation_reason(products[0])
+        },
+        "products": []
+    }
+
+    for product, breakdown in zip(products, score_breakdowns):
+        table["products"].append({
+            "asin": product["asin"],
+            "title": product["title"],
+            "price": product["price"],
+            "score": breakdown["final_score"],
+            "key_specs": extract_key_specs(product),
+            "why_recommended": generate_user_explanations(breakdown, product),
+            "score_components": breakdown
+        })
+
+    return table
+```
+
+#### **4. Telegram Message Enhancements**
+**File**: `bot/messages.py` or relevant message builder
+**Changes**: Include score explanations in carousel cards
+
+```python
+def build_transparent_carousel_card(product, score_breakdown, explanations):
+    """Build carousel card with transparent scoring information"""
+
+    card = f"""
+🏆 **Score: {score_breakdown['final_score']:.2f}/1.0**
+
+💰 **Price:** ₹{product['price']:,}
+⚡ **Key Specs:** {extract_key_specs_text(product)}
+
+🎯 **Why Recommended:**
+"""
+
+    for explanation in explanations[:3]:  # Limit to top 3
+        card += f"• {explanation}\n"
+
+    card += f"""
+📊 **Score Breakdown:**
+• Technical: {score_breakdown['technical_score']:.2f}
+• Value: {score_breakdown['value_score']:.2f}
+• Budget Fit: {score_breakdown['budget_score']:.2f}
+• Excellence: {score_breakdown['excellence_bonus']:.2f}
+"""
+
+    return card
+```
+
+### **Expected Improvements**
+- ✅ **Transparent scoring**: Users understand why products are recommended
+- ✅ **Detailed breakdowns**: Clear component-by-component analysis
+- ✅ **User-friendly explanations**: Technical scores converted to plain language
+- ✅ **Enhanced comparisons**: More informative product comparison tables
+- ✅ **Better decision-making**: Users can make informed choices
+
+### **Testing Notes**
+**Test Query**: "32 inch gaming monitor under INR 60,000"
+**Expected Result**:
+- Detailed score breakdown in logs
+- User-friendly explanations in carousel cards
+- Clear differentiation between products
+- Transparent decision-making process
+
+### **Verification Status**
+- [ ] Unit tests for enhanced transparency system
 - [ ] Integration test with detailed explanations
 - [ ] Manual testing with score breakdown display
 - [ ] User experience validation

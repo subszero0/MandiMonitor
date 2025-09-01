@@ -129,10 +129,21 @@ class EnhancedFeatureMatchModel:
         if not carousel_result.get('products'):
             return await self._fallback_to_popularity(products, user_query, "Multi-card selection failed")
         
-        # Build AI selection message
+        # Enhanced AI selection message with transparency - Phase 3
+        enhanced_reason = carousel_result['selection_reason']
+
+        # Add score range information
+        if carousel_result.get('products'):
+            scores = [p.get('score', 0) for p in carousel_result['products']]
+            if scores:
+                min_score = min(scores)
+                max_score = max(scores)
+                score_range = f"Score range: {min_score:.2f} - {max_score:.2f}"
+                enhanced_reason += f"\n\n📊 {score_range}"
+
         ai_message = build_ai_selection_message(
             presentation_mode=carousel_result['presentation_mode'],
-            selection_reason=carousel_result['selection_reason'],
+            selection_reason=enhanced_reason,
             product_count=len(carousel_result['products']),
             user_query=user_query
         )
@@ -181,11 +192,19 @@ class EnhancedFeatureMatchModel:
             return await self._fallback_to_popularity(products, user_query, "AI scoring failed")
         
         best_product, best_score = scored_products[0]
-        
-        # Build AI selection message for single card
+
+        # Generate user-friendly explanations - Phase 3 Transparency
+        score_breakdown = best_score.get('hybrid_breakdown', {})
+        user_explanations = generate_user_explanations(score_breakdown, best_product)
+
+        # Enhanced AI selection message with transparency
+        enhanced_rationale = best_score['rationale']
+        if user_explanations:
+            enhanced_rationale += "\n\n🎯 Why Recommended:\n" + "\n".join(f"• {exp}" for exp in user_explanations[:2])
+
         ai_message = build_ai_selection_message(
             presentation_mode='single',
-            selection_reason=best_score['rationale'],
+            selection_reason=enhanced_rationale,
             product_count=1,
             user_query=user_query
         )
@@ -310,3 +329,105 @@ def get_smart_selection_strategy(
         return 'single_card_ai'
     else:
         return 'popularity'
+
+
+def generate_user_explanations(score_breakdown: Dict[str, Any], product_features: Dict[str, Any]) -> List[str]:
+    """
+    Convert technical scores to user-friendly explanations - Phase 3 Transparency
+
+    Args:
+        score_breakdown: Detailed score breakdown from hybrid scoring
+        product_features: Extracted product features
+
+    Returns:
+        List of user-friendly explanation strings
+    """
+    explanations = []
+
+    # Technical excellence explanations
+    if score_breakdown["excellence_bonus"] > 0.1:
+        refresh_rate = product_features.get("refresh_rate", 0)
+        if refresh_rate >= 180:
+            explanations.append("⚡ Blazing fast 180Hz+ refresh rate for ultra-smooth gaming")
+        elif refresh_rate >= 144:
+            explanations.append("⚡ Fast 144Hz+ refresh rate for smooth gaming performance")
+
+        resolution = product_features.get("resolution", "").lower()
+        if "4k" in resolution:
+            explanations.append("🎯 Ultra-sharp 4K resolution for crystal clear visuals")
+        elif "1440p" in resolution:
+            explanations.append("🎯 High-quality QHD resolution for excellent clarity")
+
+        size = product_features.get("size", 0)
+        if 27 <= size <= 35:
+            explanations.append("📺 Perfect size for gaming (27-35 inches)")
+
+    # Value explanations
+    if score_breakdown["value_score"] > 0.9:
+        explanations.append("💰 Excellent value - outstanding performance for the price")
+    elif score_breakdown["value_score"] > 0.8:
+        explanations.append("💰 Great value proposition with solid performance")
+    elif score_breakdown["value_score"] > 0.7:
+        explanations.append("👍 Good value with reliable performance")
+
+    # Budget explanations
+    if score_breakdown["budget_score"] > 0.9:
+        explanations.append("📊 Perfectly fits within your budget")
+    elif score_breakdown["budget_score"] > 0.8:
+        explanations.append("📊 Well within your budget range")
+    elif score_breakdown["budget_score"] > 0.7:
+        explanations.append("📊 Reasonable fit for your budget")
+    elif score_breakdown["budget_score"] < 0.5:
+        explanations.append("⚠️ Slightly over budget but excellent performance")
+
+    # Technical performance explanations
+    if score_breakdown["technical_score"] > 0.8:
+        explanations.append("🏆 Top-tier technical specifications")
+    elif score_breakdown["technical_score"] > 0.7:
+        explanations.append("✅ Strong technical performance")
+
+    # Brand and panel type bonuses
+    panel_type = product_features.get("panel_type", "").lower()
+    if "ips" in panel_type:
+        explanations.append("🎨 IPS panel for accurate colors and wide viewing angles")
+
+    brand = product_features.get("brand", "").lower()
+    if brand in ["samsung", "lg", "asus", "msi", "acer"]:
+        explanations.append(f"🏷️ Trusted {brand.title()} brand with good reputation")
+
+    return explanations[:4]  # Limit to top 4 explanations
+
+
+def extract_key_specs_text(product_features: Dict[str, Any]) -> str:
+    """
+    Extract key specifications for display in user messages - Phase 3 Transparency
+
+    Args:
+        product_features: Product features dictionary
+
+    Returns:
+        Formatted string of key specifications
+    """
+    specs = []
+
+    # Size
+    size = product_features.get("size", 0)
+    if size:
+        specs.append(f"{size}\"")
+
+    # Resolution
+    resolution = product_features.get("resolution", "")
+    if resolution:
+        specs.append(resolution.upper())
+
+    # Refresh rate
+    refresh_rate = product_features.get("refresh_rate", 0)
+    if refresh_rate:
+        specs.append(f"{refresh_rate}Hz")
+
+    # Panel type
+    panel_type = product_features.get("panel_type", "")
+    if panel_type:
+        specs.append(panel_type.upper())
+
+    return " • ".join(specs) if specs else "Standard specifications"

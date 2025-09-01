@@ -795,3 +795,114 @@ class MultiCardSelector:
         prioritized = sorted(all_features, key=lambda f: feature_weights.get(f, 1), reverse=True)
         
         return prioritized
+
+    def build_enhanced_comparison_table(self, products: List[Dict], score_breakdowns: List[Dict]) -> Dict[str, Any]:
+        """
+        Build enhanced comparison table with score insights and explanations - Phase 3 Transparency
+
+        Args:
+            products: List of product dictionaries
+            score_breakdowns: List of score breakdown dictionaries
+
+        Returns:
+            Enhanced comparison table with transparency features
+        """
+        if not products or not score_breakdowns:
+            return {"error": "No products or score data available"}
+
+        # Calculate score statistics
+        scores = [breakdown.get('final_score', 0) for breakdown in score_breakdowns]
+        min_score = min(scores) if scores else 0
+        max_score = max(scores) if scores else 0
+
+        # Identify highest scoring product
+        highest_idx = scores.index(max_score) if scores else 0
+        highest_product = products[highest_idx]
+
+        # Generate key differentiators
+        key_diffs = self._identify_key_differences(products, score_breakdowns)
+
+        # Build enhanced table
+        table = {
+            "score_analysis": {
+                "highest_score_product": highest_product.get('asin', 'N/A'),
+                "score_range": f"{min_score:.2f} - {max_score:.2f}",
+                "average_score": sum(scores) / len(scores) if scores else 0,
+                "key_differentiators": key_diffs,
+                "recommendation_reason": self._generate_recommendation_reason(highest_product, score_breakdowns[highest_idx])
+            },
+            "products": []
+        }
+
+        # Add detailed product information
+        for product, breakdown in zip(products, score_breakdowns):
+            # Import here to avoid circular imports
+            from .enhanced_product_selection import generate_user_explanations, extract_key_specs_text
+
+            explanations = generate_user_explanations(breakdown, product)
+            key_specs = extract_key_specs_text(product)
+
+            table["products"].append({
+                "asin": product.get("asin", "N/A"),
+                "title": product.get("title", "Unknown Product"),
+                "price": product.get("price", 0),
+                "score": breakdown.get("final_score", 0),
+                "rank": scores.index(breakdown.get('final_score', 0)) + 1 if breakdown.get('final_score', 0) in scores else 0,
+                "key_specs": key_specs,
+                "why_recommended": explanations,
+                "score_components": {
+                    "technical": breakdown.get("technical_score", 0),
+                    "value": breakdown.get("value_score", 0),
+                    "budget": breakdown.get("budget_score", 0),
+                    "excellence": breakdown.get("excellence_bonus", 0)
+                }
+            })
+
+        return table
+
+    def _identify_key_differences(self, products: List[Dict], score_breakdowns: List[Dict]) -> List[str]:
+        """Identify the key factors that differentiate the top products"""
+        differences = []
+
+        if len(products) < 2:
+            return differences
+
+        # Compare refresh rates
+        refresh_rates = [p.get('refresh_rate', 0) for p in products]
+        if max(refresh_rates) - min(refresh_rates) >= 60:
+            differences.append("Refresh Rate (higher = better for gaming)")
+
+        # Compare resolutions
+        resolutions = [p.get('resolution', '') for p in products]
+        if len(set(resolutions)) > 1:
+            differences.append("Resolution (4K > QHD > FHD)")
+
+        # Compare prices
+        prices = [p.get('price', 0) for p in products]
+        price_range = max(prices) - min(prices)
+        if price_range > 5000:
+            differences.append("Price (value per rupee)")
+
+        return differences[:3]  # Limit to top 3 differences
+
+    def _generate_recommendation_reason(self, top_product: Dict, top_breakdown: Dict) -> str:
+        """Generate a clear reason for why this product is recommended"""
+        reasons = []
+
+        score = top_breakdown.get('final_score', 0)
+        if score > 0.85:
+            reasons.append("exceptional overall performance")
+        elif score > 0.75:
+            reasons.append("excellent balance of features and value")
+        else:
+            reasons.append("strong performance within budget")
+
+        excellence = top_breakdown.get('excellence_bonus', 0)
+        if excellence > 0.1:
+            reasons.append("superior technical specifications")
+
+        value = top_breakdown.get('value_score', 0)
+        if value > 0.9:
+            reasons.append("outstanding value for money")
+
+        return f"Best choice due to {', '.join(reasons)}"

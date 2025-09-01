@@ -833,7 +833,17 @@ class FeatureMatchingEngine:
             "processing_time_ms": (time.time() - start_time) * 1000
         }
 
-        log.info(f"🎯 HYBRID_SCORE: {final_score:.3f} | Tech:{tech_score:.3f} | Value:{value_score:.3f} | Budget:{budget_score:.3f} | Excellence:{excellence_bonus:.3f}")
+        # Enhanced transparency logging - Phase 3
+        product_title = product_features.get('title', 'Unknown Product')[:50]  # Truncate long titles
+        usage_context = user_features.get('usage_context', '').lower()
+        context_type = 'Gaming' if 'gaming' in usage_context else 'General'
+
+        log.info(f"🎯 HYBRID_SCORE_BREAKDOWN: {final_score:.3f} for '{product_title}'")
+        log.info(f"   📊 Components: Tech={tech_score:.3f} | Value={value_score:.3f} | Budget={budget_score:.3f} | Excellence={excellence_bonus:.3f}")
+        log.info(f"   ⚖️ Weights: Tech={weights['technical']:.0%} | Value={weights['value']:.0%} | Budget={weights['budget']:.0%} | Excellence={weights['excellence']:.0%}")
+        log.info(f"   💰 Price: ₹{product_features.get('price', 0):,} | Tech Performance: {self._calculate_technical_performance(product_features):.3f}")
+        log.info(f"   🎮 Context: {context_type} | User Query: '{user_features.get('original_query', 'N/A')[:30]}'")
+        log.info(f"   📈 Final Calculation: ({tech_score:.3f}×{weights['technical']:.3f}) + ({value_score:.3f}×{weights['value']:.3f}) + ({budget_score:.3f}×{weights['budget']:.3f}) + ({excellence_bonus:.3f}×{weights['excellence']:.3f}) = {final_score:.3f}")
 
         return final_score, detailed_breakdown
 
