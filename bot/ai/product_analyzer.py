@@ -84,6 +84,20 @@ class ProductFeatureAnalyzer:
             ],
             "brand": [
                 re.compile(r"\b(samsung|lg|dell|asus|acer|msi|benq|viewsonic|aoc|hp|lenovo)\b", re.IGNORECASE),
+            ],
+            "category": [
+                re.compile(r"\b(monitor|display|screen)\b", re.IGNORECASE),
+                re.compile(r"\b(laptop|notebook|computer)\b", re.IGNORECASE),
+                re.compile(r"\b(headphone|earphone|headset)\b", re.IGNORECASE),
+            ],
+            "usage_context": [
+                re.compile(r"\b(gaming|game|gamer)\b", re.IGNORECASE),
+                re.compile(r"\b(professional|work|office)\b", re.IGNORECASE),
+                re.compile(r"\b(coding|programming|development)\b", re.IGNORECASE),
+            ],
+            "price": [
+                re.compile(r"₹\s*([\d,]+)", re.IGNORECASE),
+                re.compile(r"price[:\s]*₹?\s*([\d,]+)", re.IGNORECASE),
             ]
         }
 

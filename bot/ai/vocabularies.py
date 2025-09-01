@@ -142,8 +142,9 @@ FEATURE_WEIGHTS = {
         "size": 1.5,           # User preference (lower than gaming purpose)
         "curvature": 1.2,      # Nice to have feature
         "panel_type": 1.0,     # Technical preference
-        "brand": 0.8,          # Brand preference
-        "category": 0.3        # 🎯 LOWEST: Usually correct anyway
+        "brand": 0.8,          # Brand consideration
+        "price": 0.5,          # Price consideration (moderate weight for value analysis)
+        "category": 0.3        # 🎯 LOWEST: Usually correct, minimal impact
     },
     "laptop": {
         "processor": 3.0,

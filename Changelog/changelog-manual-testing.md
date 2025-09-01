@@ -4,6 +4,93 @@ This document tracks all changes, bug fixes, improvements, and testing results f
 
 ---
 
+## 🎯 2025-09-01 - AI SCORING SYSTEM OVERHAUL (PHASE 1)
+
+### **Problem Identified**
+**Issue**: AI scoring system producing identical scores for all products despite huge price/spec differences
+**User Impact**: Users getting meaningless recommendations where all 32" monitors score identically (0.349)
+**Symptoms**: No differentiation between ₹22k vs ₹50k products, 60Hz vs 180Hz monitors scoring same
+
+### **Root Cause Analysis**
+1. **Missing Feature Extraction**: Product analyzer only extracting technical specs, missing `category`, `usage_context`, `price`
+2. **Incomplete Scoring**: Only "size" feature being scored, all other user requirements ignored
+3. **No Price/Value Analysis**: Products with 2x price difference scoring identically
+4. **Missing Technical Differentiation**: 180Hz vs 60Hz monitors getting same scores
+
+### **Phase 1 Implementation: Fix Missing Feature Extraction**
+
+#### **1. Enhanced Product Feature Extraction**
+**File**: `bot/ai/product_analyzer.py` - `_setup_patterns()`
+**Changes**: Added missing patterns for category, usage_context, and price extraction
+
+```python
+# ADDED: Missing feature extraction patterns
+"category": [
+    r"\b(monitor|display|screen)\b",
+    r"\b(laptop|notebook|computer)\b",
+    r"\b(headphone|earphone|headset)\b"
+],
+"usage_context": [
+    r"\b(gaming|game|gamer)\b",
+    r"\b(professional|work|office)\b",
+    r"\b(coding|programming|development)\b"
+],
+"price": [
+    r"₹\s*([\d,]+)",
+    r"price[:\s]*₹?\s*([\d,]+)"
+]
+```
+
+#### **2. Enhanced Scoring Feature Recognition**
+**File**: `bot/ai/matching_engine.py` - `score_product()`
+**Changes**: Include category and usage_context in scoring (removed from metadata skip list)
+
+```python
+# BEFORE: Skipped as metadata
+"category", "usage_context"  # ❌ Not scored
+
+# AFTER: Actively scored
+"category", "usage_context"  # ✅ Scored with weights
+```
+
+#### **3. Updated Feature Weights**
+**File**: `bot/ai/vocabularies.py` - `FEATURE_WEIGHTS`
+**Changes**: Rebalanced weights for gaming-focused scoring with context features
+
+```python
+FEATURE_WEIGHTS["gaming_monitor"] = {
+    "usage_context": 2.5,   # 🎯 HIGHEST: Gaming purpose is critical
+    "refresh_rate": 2.0,    # Very important for gaming
+    "resolution": 1.8,      # Important for image quality
+    "size": 1.5,           # User preference (lower than gaming)
+    "curvature": 1.2,      # Nice to have feature
+    "panel_type": 1.0,     # Technical preference
+    "brand": 0.8,          # Brand preference
+    "category": 0.3        # 🎯 LOWEST: Usually correct anyway
+}
+```
+
+### **Expected Improvements**
+- ✅ **Differentiated Scoring**: Products with different specs/prices will score differently
+- ✅ **Context Recognition**: Gaming monitors recognized as gaming products
+- ✅ **Price Awareness**: System can extract and consider price information
+- ✅ **Better Multi-Card Selection**: More meaningful product comparisons
+
+### **Testing Notes**
+**Test Query**: "32 inch gaming monitor under INR 60,000"
+**Expected Result**:
+- BEFORE: All products score 0.349 (identical)
+- AFTER: Products score based on actual value differences
+- Example: ₹22k 180Hz monitor should score higher than ₹50k 60Hz monitor
+
+### **Verification Status**
+- [ ] Unit tests for new feature extraction patterns
+- [ ] Integration test with real PA-API data
+- [ ] Manual testing with gaming monitor queries
+- [ ] Score differentiation verification
+
+---
+
 ## 🤖 2025-08-30 - AI METHOD & MULTI-CARD FIXES
 
 ### **Problem Identified**

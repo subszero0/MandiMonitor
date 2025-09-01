@@ -31,7 +31,7 @@ class FeatureMatchingEngine:
         self.tolerance_windows = {
             "refresh_rate": 0.15,   # ±15% tolerance for refresh rate (144Hz accepts 120-165Hz)
             "size": 0.10,           # ±10% tolerance for screen size (27" accepts 24-30")
-            "price": 0.20,          # ±20% tolerance for price matching
+            "price": 0.15,          # ±15% tolerance for price matching (stricter for value analysis)
         }
         
         # Penalty multipliers for mismatches
@@ -127,10 +127,13 @@ class FeatureMatchingEngine:
         
         # Score each user requirement
         for feature_name, user_value in user_features.items():
-            # Skip pure metadata fields (not user requirements)
+                        # Skip pure metadata fields (not user requirements)
             if feature_name in ["confidence", "processing_time_ms", "technical_query",
                                "category_detected", "matched_features_count", "technical_density"]:
                 continue
+
+            # Include category and usage_context in scoring (they are user requirements)
+            # These were previously skipped as metadata but should be scored
                 
             weight = weights.get(feature_name, 1.0)
             total_weight += weight
