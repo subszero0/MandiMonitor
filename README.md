@@ -94,18 +94,19 @@ docker compose up -d
 - **Click Analytics**: Affiliate link engagement monitoring
 - **Database Bootstrap**: Automated table creation and migration support
 
-### AI-Powered Intelligence (Phase 7) - Enhanced Transparency System
+### AI-Powered Intelligence (Phase 7) - Dynamic Technical Scoring System
 - **🎯 Smart Feature Extraction**: Extracts category, usage_context, price from product data
 - **💰 Hybrid Value Scoring**: Combines technical merit, price value, budget fit, excellence bonuses
-- **⚖️ Context-Aware Weighting**: Gaming vs general use with different scoring priorities
-- **📊 Performance-per-Rupee**: Rewards products with better value ratios
-- **🏆 Technical Excellence**: Bonuses for superior specs (180Hz+, 4K, optimal size)
-- **🎮 Gaming Optimization**: Technical performance prioritized for gaming context (45% weight)
+- **⚖️ Adaptive Weighting**: Dynamic weight adjustment based on user query analysis
+- **📊 Category-Specific Algorithms**: Different scoring for gaming, professional, and general use
+- **🏆 Advanced Technical Assessment**: Context-aware evaluation of refresh rates, resolutions, panels
+- **🎮 Gaming Optimization**: 35% refresh rate, 25% response time weighting for gaming monitors
 - **🔍 Complete Transparency**: Detailed score breakdowns with plain language explanations
 - **📈 Fair Differentiation**: Products scored by actual merit, not data completeness
 - **💬 User-Friendly Explanations**: Technical scores converted to understandable language
 - **📊 Enhanced Comparisons**: Score ranges and key differentiators in multi-card displays
 - **🎯 Why Recommended**: Clear reasoning for each product recommendation
+- **🔧 Query Analysis**: Automatic detection of price-sensitive, performance-focused, or professional users
 - **Predictive Engine**: Machine learning models for user interest prediction
 - **Collaborative Filtering**: User behavior analysis for personalized recommendations
 - **Deal Success Prediction**: AI-based probability scoring for deal quality

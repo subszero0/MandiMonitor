@@ -796,8 +796,8 @@ class FeatureMatchingEngine:
         """
         start_time = time.time()
 
-        # 1. Calculate pure technical score
-        tech_score = self.score_product(user_features, product_features, category)
+        # 1. Calculate advanced technical score (Phase 4 Enhancement)
+        tech_score = self._calculate_advanced_technical_performance(product_features, user_features, category)
 
         # 2. Calculate value ratio score (performance per rupee)
         value_score = self._calculate_value_ratio_score(product_features, user_features)
@@ -808,8 +808,8 @@ class FeatureMatchingEngine:
         # 4. Apply technical excellence bonus
         excellence_bonus = self._calculate_excellence_bonus(tech_score, product_features)
 
-        # 5. Context-aware weighting (gaming vs general)
-        weights = self._get_context_weights(user_features, category)
+        # 5. Adaptive weighting based on user preferences (Phase 4 Enhancement)
+        weights = self._calculate_adaptive_weights(user_features, product_features, category)
 
         # 6. Calculate final weighted score
         final_score = (
@@ -846,6 +846,401 @@ class FeatureMatchingEngine:
         log.info(f"   📈 Final Calculation: ({tech_score:.3f}×{weights['technical']:.3f}) + ({value_score:.3f}×{weights['value']:.3f}) + ({budget_score:.3f}×{weights['budget']:.3f}) + ({excellence_bonus:.3f}×{weights['excellence']:.3f}) = {final_score:.3f}")
 
         return final_score, detailed_breakdown
+
+    def _calculate_advanced_technical_performance(self, product_features: Dict[str, Any], user_features: Dict[str, Any], category: str) -> float:
+        """
+        Advanced technical performance calculation with category-specific logic - Phase 4 Enhancement
+
+        Args:
+            product_features: Product technical specifications
+            user_features: User requirements and preferences
+            category: Product category for specialized scoring
+
+        Returns:
+            Advanced technical performance score (0-1)
+        """
+        # Base performance calculation
+        base_performance = self._calculate_technical_performance(product_features)
+
+        # Category-specific enhancements
+        if category == "gaming_monitor":
+            return self._calculate_gaming_performance(product_features, user_features)
+        elif category == "professional_monitor":
+            return self._calculate_professional_performance(product_features, user_features)
+        elif category == "general_monitor":
+            return self._calculate_general_performance(product_features, user_features)
+        else:
+            return base_performance
+
+    def _calculate_gaming_performance(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
+        """
+        Gaming-specific performance calculation with emphasis on refresh rate and response time - Phase 4
+        """
+        performance_components = {
+            'refresh_rate': 0.35,  # Highest weight for gaming
+            'response_time': 0.25,  # Critical for gaming
+            'resolution': 0.20,     # Important but secondary
+            'color_accuracy': 0.10,  # Nice to have
+            'connectivity': 0.10    # HDMI, DisplayPort support
+        }
+
+        total_score = 0.0
+        total_weight = 0.0
+
+        # Refresh rate scoring (gaming critical)
+        refresh_rate = product_features.get("refresh_rate", 0)
+        if refresh_rate >= 240: refresh_score = 1.0
+        elif refresh_rate >= 165: refresh_score = 0.9
+        elif refresh_rate >= 144: refresh_score = 0.8
+        elif refresh_rate >= 120: refresh_score = 0.6
+        elif refresh_rate >= 75: refresh_score = 0.4
+        else: refresh_score = 0.2
+
+        total_score += refresh_score * performance_components['refresh_rate']
+        total_weight += performance_components['refresh_rate']
+
+        # Response time scoring (gaming critical)
+        response_time = product_features.get("response_time", 10)  # Default 10ms
+        if response_time <= 1: response_score = 1.0
+        elif response_time <= 2: response_score = 0.9
+        elif response_time <= 4: response_score = 0.8
+        elif response_time <= 6: response_score = 0.6
+        else: response_score = 0.4
+
+        total_score += response_score * performance_components['response_time']
+        total_weight += performance_components['response_time']
+
+        # Resolution scoring (with gaming considerations)
+        resolution = product_features.get("resolution", "").lower()
+        if "4k" in resolution and refresh_rate >= 120: resolution_score = 0.9  # 4K with good refresh
+        elif "4k" in resolution: resolution_score = 0.7  # 4K with poor refresh
+        elif "1440p" in resolution: resolution_score = 0.8
+        elif "1080p" in resolution: resolution_score = 0.6
+        else: resolution_score = 0.4
+
+        total_score += resolution_score * performance_components['resolution']
+        total_weight += performance_components['resolution']
+
+        return total_score / total_weight if total_weight > 0 else 0.5
+
+    def _calculate_professional_performance(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
+        """
+        Professional monitor performance calculation - Phase 4
+        Emphasizes color accuracy, stability, and professional features
+        """
+        performance_components = {
+            'color_accuracy': 0.35,  # Most important for professionals
+            'resolution': 0.25,      # High resolution for detail work
+            'panel_type': 0.20,      # IPS panels preferred for color work
+            'refresh_rate': 0.15,    # Stability over high refresh
+            'connectivity': 0.05     # Professional connectivity options
+        }
+
+        total_score = 0.0
+        total_weight = 0.0
+
+        # Color accuracy scoring (professional critical)
+        color_gamut = product_features.get("color_gamut", "").lower()
+        if "99%" in color_gamut or "100%" in color_gamut: color_score = 1.0
+        elif "95%" in color_gamut or "97%" in color_gamut: color_score = 0.9
+        elif "90%" in color_gamut: color_score = 0.8
+        elif "85%" in color_gamut: color_score = 0.7
+        else: color_score = 0.5
+
+        total_score += color_score * performance_components['color_accuracy']
+        total_weight += performance_components['color_accuracy']
+
+        # Resolution scoring (higher resolution preferred)
+        resolution = product_features.get("resolution", "").lower()
+        if "4k" in resolution: resolution_score = 1.0
+        elif "1440p" in resolution: resolution_score = 0.8
+        elif "1080p" in resolution: resolution_score = 0.6
+        else: resolution_score = 0.4
+
+        total_score += resolution_score * performance_components['resolution']
+        total_weight += performance_components['resolution']
+
+        # Panel type scoring (IPS preferred for professionals)
+        panel_type = product_features.get("panel_type", "").lower()
+        if "ips" in panel_type: panel_score = 1.0
+        elif "va" in panel_type: panel_score = 0.7
+        else: panel_score = 0.5
+
+        total_score += panel_score * performance_components['panel_type']
+        total_weight += performance_components['panel_type']
+
+        return total_score / total_weight if total_weight > 0 else 0.5
+
+    def _calculate_general_performance(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
+        """
+        General purpose monitor performance calculation - Phase 4
+        Balanced approach for everyday use
+        """
+        performance_components = {
+            'value_ratio': 0.25,    # Overall value consideration
+            'usability': 0.25,      # Ease of use features
+            'versatility': 0.25,    # Multiple use case support
+            'reliability': 0.15,    # Brand reputation and build quality
+            'features': 0.10        # Additional features
+        }
+
+        total_score = 0.0
+        total_weight = 0.0
+
+        # Value ratio scoring
+        price = product_features.get("price", 0)
+        size = product_features.get("size", 0)
+        if price and size:
+            price_per_inch = price / size
+            if price_per_inch < 1500: value_score = 0.9  # Excellent value
+            elif price_per_inch < 2000: value_score = 0.8
+            elif price_per_inch < 2500: value_score = 0.7
+            elif price_per_inch < 3000: value_score = 0.6
+            else: value_score = 0.5
+        else:
+            value_score = 0.6
+
+        total_score += value_score * performance_components['value_ratio']
+        total_weight += performance_components['value_ratio']
+
+        return total_score / total_weight if total_weight > 0 else 0.5
+
+    def _calculate_adaptive_weights(self, user_features: Dict[str, Any], product_features: Dict[str, Any], category: str) -> Dict[str, float]:
+        """
+        Calculate adaptive weights based on user preferences and product characteristics - Phase 4 Enhancement
+
+        Args:
+            user_features: User requirements and preferences
+            product_features: Product technical specifications
+            category: Product category
+
+        Returns:
+            Dictionary of adaptive weights that sum to 1.0
+        """
+        # Start with base context weights
+        base_weights = self._get_context_weights(user_features, category)
+        adaptive_weights = base_weights.copy()
+
+        # Adjust weights based on user emphasis in query
+        user_query = user_features.get('original_query', '').lower()
+
+        # Price-sensitive users get higher value and budget weights
+        if any(term in user_query for term in ['cheap', 'budget', 'affordable', 'low price', 'inexpensive']):
+            adaptive_weights['value'] += 0.1
+            adaptive_weights['budget'] += 0.1
+            adaptive_weights['technical'] -= 0.1
+            adaptive_weights['excellence'] -= 0.1
+            log.debug(f"💰 ADAPTIVE_WEIGHTS: Price-sensitive user detected, adjusted value +10%, budget +10%")
+
+        # Performance-focused users get higher technical and excellence weights
+        elif any(term in user_query for term in ['performance', 'fast', 'high refresh', 'gaming', 'fps', 'response time']):
+            adaptive_weights['technical'] += 0.15
+            adaptive_weights['excellence'] += 0.05
+            adaptive_weights['value'] -= 0.1
+            adaptive_weights['budget'] -= 0.1
+            log.debug(f"⚡ ADAPTIVE_WEIGHTS: Performance-focused user detected, adjusted technical +15%, excellence +5%")
+
+        # Professional/creative users get balanced weights with emphasis on quality
+        elif any(term in user_query for term in ['professional', 'design', 'creative', 'color accurate', 'photo', 'video']):
+            adaptive_weights['technical'] += 0.1
+            adaptive_weights['excellence'] += 0.1
+            adaptive_weights['value'] -= 0.1
+            log.debug(f"🎨 ADAPTIVE_WEIGHTS: Professional user detected, adjusted technical +10%, excellence +10%")
+
+        # Size-focused queries adjust for display size considerations
+        if any(term in user_query for term in ['large', 'big', 'huge', '32 inch', '34 inch', 'ultra wide', 'ultrawide']):
+            # For large displays, prioritize resolution and size compatibility
+            adaptive_weights['technical'] += 0.05
+            adaptive_weights['excellence'] += 0.05
+            adaptive_weights['value'] -= 0.05
+            log.debug(f"📺 ADAPTIVE_WEIGHTS: Large display focus detected, adjusted technical +5%, excellence +5%")
+
+        # Normalize weights to ensure they sum to 1.0
+        total = sum(adaptive_weights.values())
+        if total > 0:
+            adaptive_weights = {k: v/total for k, v in adaptive_weights.items()}
+
+        # Log final adaptive weights
+        log.debug(f"⚖️ FINAL_ADAPTIVE_WEIGHTS: Technical={adaptive_weights['technical']:.1%}, Value={adaptive_weights['value']:.1%}, Budget={adaptive_weights['budget']:.1%}, Excellence={adaptive_weights['excellence']:.1%}")
+
+        return adaptive_weights
+
+    def _calculate_enhanced_feature_quality(self, feature_name: str, feature_value: Any, user_requirements: Dict[str, Any]) -> float:
+        """
+        Enhanced feature quality calculation with better edge case handling - Phase 4 Enhancement
+
+        Args:
+            feature_name: Name of the feature being assessed
+            feature_value: Value of the feature
+            user_requirements: User requirements and context
+
+        Returns:
+            Quality score (0-1) for the feature
+        """
+        if not feature_value:
+            return 0.0
+
+        # Category-specific quality assessment
+        if feature_name == "refresh_rate":
+            return self._assess_refresh_rate_quality(feature_value, user_requirements)
+
+        elif feature_name == "resolution":
+            return self._assess_resolution_quality(feature_value, user_requirements)
+
+        elif feature_name == "size":
+            return self._assess_size_quality(feature_value, user_requirements)
+
+        elif feature_name == "price":
+            return self._assess_price_quality(feature_value, user_requirements)
+
+        elif feature_name == "panel_type":
+            return self._assess_panel_quality(feature_value, user_requirements)
+
+        elif feature_name == "response_time":
+            return self._assess_response_time_quality(feature_value, user_requirements)
+
+        else:
+            # Fallback to generic quality assessment
+            return self._calculate_generic_quality(feature_value)
+
+    def _assess_refresh_rate_quality(self, refresh_rate: int, user_requirements: Dict[str, Any]) -> float:
+        """
+        Assess refresh rate quality with context awareness - Phase 4
+        """
+        if not isinstance(refresh_rate, (int, float)):
+            return 0.5
+
+        # Get user's context to adjust expectations
+        usage_context = user_requirements.get('usage_context', '').lower()
+        user_budget = user_requirements.get('max_price') or user_requirements.get('budget')
+
+        # Gaming users expect higher refresh rates
+        if 'gaming' in usage_context:
+            if refresh_rate >= 240: return 1.0
+            elif refresh_rate >= 165: return 0.9
+            elif refresh_rate >= 144: return 0.8
+            elif refresh_rate >= 120: return 0.7
+            elif refresh_rate >= 75: return 0.6
+            elif refresh_rate >= 60: return 0.4
+            else: return 0.2
+
+        # Professional users prioritize stability over high refresh
+        elif any(term in usage_context for term in ['professional', 'work', 'office', 'design']):
+            if refresh_rate >= 75: return 0.9  # Stable refresh for work
+            elif refresh_rate >= 60: return 0.8
+            elif refresh_rate >= 30: return 0.7
+            else: return 0.5
+
+        # General users - balanced expectations
+        else:
+            if refresh_rate >= 120: return 0.9
+            elif refresh_rate >= 75: return 0.8
+            elif refresh_rate >= 60: return 0.7
+            elif refresh_rate >= 30: return 0.6
+            else: return 0.5
+
+    def _assess_resolution_quality(self, resolution: str, user_requirements: Dict[str, Any]) -> float:
+        """
+        Assess resolution quality with size and usage considerations - Phase 4
+        """
+        if not resolution:
+            return 0.5
+
+        resolution = resolution.lower()
+        size = user_requirements.get('size', 0)
+        usage_context = user_requirements.get('usage_context', '').lower()
+
+        # 4K quality assessment
+        if '4k' in resolution or '3840' in resolution:
+            # 4K on small screens may not be ideal (overkill)
+            if size and size < 27:
+                return 0.7
+            # 4K gaming on large screen - excellent
+            elif 'gaming' in usage_context and size and size > 32:
+                return 0.9
+            # 4K for professional work - excellent
+            elif 'professional' in usage_context or 'design' in usage_context:
+                return 0.9
+            else:
+                return 0.8  # 4K generally good
+
+        # QHD/1440p assessment
+        elif '1440p' in resolution or '2560' in resolution:
+            if size and 27 <= size <= 35:
+                return 0.9  # Perfect for gaming monitors
+            elif 'professional' in usage_context or 'design' in usage_context:
+                return 0.8  # Good for professional work
+            else:
+                return 0.7
+
+        # FHD/1080p assessment
+        elif '1080p' in resolution or '1920' in resolution:
+            if size and size <= 24:
+                return 0.8  # Good for small screens
+            elif size and size > 32:
+                return 0.4  # Underpowered for large screens
+            elif 'gaming' in usage_context:
+                return 0.5  # Minimum for gaming
+            else:
+                return 0.6
+
+        return 0.5  # Unknown resolution
+
+    def _assess_response_time_quality(self, response_time: int, user_requirements: Dict[str, Any]) -> float:
+        """
+        Assess response time quality for gaming - Phase 4
+        """
+        if not isinstance(response_time, (int, float)):
+            return 0.5
+
+        usage_context = user_requirements.get('usage_context', '').lower()
+
+        # Only critical for gaming users
+        if 'gaming' in usage_context:
+            if response_time <= 1: return 1.0
+            elif response_time <= 2: return 0.9
+            elif response_time <= 4: return 0.8
+            elif response_time <= 6: return 0.6
+            elif response_time <= 10: return 0.4
+            else: return 0.2
+
+        # Less critical for other users
+        else:
+            if response_time <= 5: return 0.8
+            elif response_time <= 10: return 0.7
+            elif response_time <= 15: return 0.6
+            else: return 0.5
+
+    def _assess_panel_quality(self, panel_type: str, user_requirements: Dict[str, Any]) -> float:
+        """
+        Assess panel type quality based on usage context - Phase 4
+        """
+        if not panel_type:
+            return 0.5
+
+        panel_type = panel_type.lower()
+        usage_context = user_requirements.get('usage_context', '').lower()
+
+        # IPS panels preferred for professionals (color accuracy)
+        if 'professional' in usage_context or 'design' in usage_context or 'creative' in usage_context:
+            if 'ips' in panel_type: return 1.0
+            elif 'va' in panel_type: return 0.7
+            elif 'tn' in panel_type: return 0.4
+            else: return 0.6
+
+        # Gaming users prefer fast panels
+        elif 'gaming' in usage_context:
+            if 'ips' in panel_type: return 0.9  # Good for gaming with accurate colors
+            elif 'tn' in panel_type: return 0.8  # Fast response time
+            elif 'va' in panel_type: return 0.7  # Good contrast
+            else: return 0.6
+
+        # General users - balanced preference
+        else:
+            if 'ips' in panel_type: return 0.9
+            elif 'va' in panel_type: return 0.8
+            elif 'tn' in panel_type: return 0.6
+            else: return 0.5
 
     def _calculate_value_ratio_score(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
         """Calculate performance-per-rupee score to reward better value"""
