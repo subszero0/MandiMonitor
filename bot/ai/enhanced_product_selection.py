@@ -60,9 +60,11 @@ class EnhancedFeatureMatchModel:
         
         # Use override or instance setting for multi-card
         multi_card_enabled = enable_multi_card if enable_multi_card is not None else self.enable_multi_card
-        
+        log.info(f"🎯 ENHANCED_SELECTION_CONFIG: multi_card_enabled={multi_card_enabled}, products={len(products)}")
+
         # Extract user features
         user_features = self.feature_extractor.extract_features(user_query, category="gaming_monitor")
+        log.info(f"🔍 FEATURE_EXTRACTION: found {len(user_features.get('features', []))} features")
         
         if not user_features:
             return await self._fallback_to_popularity(products, user_query, "No technical features detected")

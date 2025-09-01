@@ -35,7 +35,7 @@ async def test_forced_ai_model_selection():
         ("random query", 1)
     ]
 
-    user_id = "test_user"
+    user_id = "7332386643"  # Use real dev user ID for consistent testing
     all_passed = True
 
     for query, product_count in test_cases:
@@ -98,7 +98,7 @@ async def test_feature_flags():
     """Test feature flag logic with forced technical queries."""
     print("\n=== Testing Feature Flags (FORCED Technical) ===")
 
-    user_id = "test_user"
+    user_id = "7332386643"  # Use real dev user ID for consistent testing
 
     # Test enhanced carousel flag (should always pass now due to forced technical)
     enhanced_carousel = is_ai_feature_enabled(

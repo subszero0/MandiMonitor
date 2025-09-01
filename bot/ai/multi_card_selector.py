@@ -32,20 +32,20 @@ class MultiCardSelector:
         self.max_cards = 3  # Maximum cards to show
 
     async def select_products_for_comparison(
-        self, 
-        scored_products: List[Tuple[Dict, Dict]], 
+        self,
+        scored_products: List[Tuple[Dict, Dict]],
         user_features: Dict[str, Any],
         max_cards: int = 3
     ) -> Dict[str, Any]:
         """
         Select optimal number of products for user choice.
-        
+
         Args:
         ----
             scored_products: List of (product, score_data) tuples sorted by score
             user_features: User requirements from query
             max_cards: Maximum number of cards to show (default 3)
-            
+
         Returns:
         -------
             {
@@ -56,6 +56,21 @@ class MultiCardSelector:
                 'ai_metadata': Dict           # Selection metadata for analytics
             }
         """
+        log.info(f"🎯 MULTI_CARD_SELECTOR: Starting selection for {len(scored_products)} scored products")
+        log.info(f"   📝 User features: {user_features}")
+        log.info(f"   🔢 Max cards: {max_cards}")
+
+        if len(scored_products) < 2:
+            log.warning(f"❌ MULTI_CARD_SELECTOR: Only {len(scored_products)} scored products, need at least 2")
+            return {"selection_type": "single", "products": []}
+
+        # Log top product details
+        if scored_products:
+            top_product, top_score = scored_products[0]
+            log.info(f"   🥇 Top product: {top_product.get('asin', 'N/A')} - Score: {top_score.get('score', 'N/A')}")
+            log.info(f"   📊 Top features: {top_score.get('matched_features', [])}")
+
+        # Continue with existing logic...
         start_time = time.time()
         
         if not scored_products:
@@ -254,13 +269,13 @@ class MultiCardSelector:
             return True
         
         candidate_price = candidate.get("price", 0)
-        candidate_brand = candidate.get("brand", "").lower()
+        candidate_brand = (candidate.get("brand") or "").lower()
         candidate_features = set(candidate_score.get("matched_features", []))
-        
+
         # Check diversity across selected products
         for selected_product, selected_score in selected:
             selected_price = selected_product.get("price", 0)
-            selected_brand = selected_product.get("brand", "").lower()
+            selected_brand = (selected_product.get("brand") or "").lower()
             selected_features = set(selected_score.get("matched_features", []))
             
             # Price diversity (convert to rupees for comparison)

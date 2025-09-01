@@ -31,6 +31,7 @@ log = getLogger(__name__)
 
 # Feature flag for AI integration
 ENABLE_AI_ANALYSIS = getattr(settings, 'ENABLE_AI_ANALYSIS', True)
+log.info(f"🤖 AI_ANALYSIS_CONFIG: ENABLE_AI_ANALYSIS={ENABLE_AI_ANALYSIS}")
 
 
 class OfficialPaapiClient:
@@ -130,7 +131,8 @@ class OfficialPaapiClient:
         
         # Determine AI analysis setting
         use_ai = enable_ai_analysis if enable_ai_analysis is not None else ENABLE_AI_ANALYSIS
-        
+        log.info(f"🔍 SEARCH_AI_DECISION: use_ai={use_ai}, enable_ai_analysis={enable_ai_analysis}, ENABLE_AI_ANALYSIS={ENABLE_AI_ANALYSIS}")
+
         # If AI analysis is enabled, use the AI bridge
         if use_ai:
             try:
@@ -445,6 +447,7 @@ class OfficialPaapiClient:
 
         # Determine AI analysis setting
         use_ai = enable_ai_analysis if enable_ai_analysis is not None else ENABLE_AI_ANALYSIS
+        log.info(f"🔍 SEARCH_AI_DECISION: use_ai={use_ai}, enable_ai_analysis={enable_ai_analysis}, ENABLE_AI_ANALYSIS={ENABLE_AI_ANALYSIS}")
 
         # FIXED: Now we can use AI even when both price filters are provided
         # Price filters are properly passed to PA-API, no more recursion risk
@@ -1178,8 +1181,26 @@ class OfficialPaapiClient:
                 data["upc"] = item.item_info.external_ids.upc.display_value if hasattr(item.item_info.external_ids, 'upc') and item.item_info.external_ids.upc else None
 
         # Extract pricing information from offersV2
+        log.debug(f"DEBUG PRICE EXTRACTION: item.offers_v2 exists: {hasattr(item, 'offers_v2')}")
+        if hasattr(item, 'offers_v2'):
+            log.debug(f"DEBUG PRICE EXTRACTION: item.offers_v2 is None: {item.offers_v2 is None}")
+            if item.offers_v2:
+                log.debug(f"DEBUG PRICE EXTRACTION: offers_v2 type: {type(item.offers_v2)}")
+                log.debug(f"DEBUG PRICE EXTRACTION: offers_v2.listings exists: {hasattr(item.offers_v2, 'listings')}")
+                if hasattr(item.offers_v2, 'listings'):
+                    log.debug(f"DEBUG PRICE EXTRACTION: listings is None: {item.offers_v2.listings is None}")
+                    if item.offers_v2.listings:
+                        log.debug(f"DEBUG PRICE EXTRACTION: listings type: {type(item.offers_v2.listings)}")
+                        log.debug(f"DEBUG PRICE EXTRACTION: listings length: {len(item.offers_v2.listings)}")
+
         if item.offers_v2 and item.offers_v2.listings:
-            offer = item.offers_v2.listings[0]  # Take the first offer
+
+            if item.offers_v2.listings:
+                offer = item.offers_v2.listings[0]  # Take the first offer
+                log.debug(f"DEBUG PRICE EXTRACTION: first offer type: {type(offer)}")
+                log.debug(f"DEBUG PRICE EXTRACTION: first offer content: {offer}")
+            else:
+                offer = None
             
             # Offers are returned as dictionaries in the response
             if isinstance(offer, dict):

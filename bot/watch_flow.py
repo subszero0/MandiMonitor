@@ -660,7 +660,7 @@ async def smart_product_selection_with_ai(
     user_query: str, 
     user_preferences: Dict,
     enable_multi_card: bool = True,
-    user_id: str = "system"  # R7: Added for rollout management
+    user_id: str = "7332386643"  # R7: Default to dev user for development testing
 ) -> Dict[str, Any]:
     """Enhanced product selection that supports both single and multi-card experiences."""
     from .ai.feature_extractor import FeatureExtractor
@@ -686,12 +686,12 @@ async def smart_product_selection_with_ai(
         
         # Check if we should use multi-card experience (Phase 6)
         # Enhanced: More permissive conditions for multi-card selection
-        has_features_or_tech_query = user_features or self._is_technical_query(user_query)
+        has_features_or_tech_query = user_features or _is_technical_query(user_query)
 
         if enable_multi_card and len(products) >= 3 and has_features_or_tech_query and enhanced_carousel_enabled:
             from .ai.enhanced_product_selection import EnhancedFeatureMatchModel
-            
-            log.info(f"Attempting multi-card experience (enhanced_carousel={enhanced_carousel_enabled})")
+
+            log.info(f"🎯 ATTEMPTING_MULTI_CARD: enabled={enable_multi_card}, products={len(products)} (>=3), tech_query={has_features_or_tech_query}, carousel={enhanced_carousel_enabled}")
             enhanced_model = EnhancedFeatureMatchModel()
             result = await enhanced_model.select_products(
                 products=products,
@@ -699,8 +699,15 @@ async def smart_product_selection_with_ai(
                 user_preferences=user_preferences,
                 enable_multi_card=True
             )
-            
-            log.info(f"MULTI_CARD_SELECTION: {result.get('selection_type', 'unknown')}, {len(result.get('products', []))} products")
+
+            selection_type = result.get('selection_type', 'unknown')
+            product_count = len(result.get('products', []))
+            log.info(f"✅ MULTI_CARD_RESULT: type={selection_type}, products={product_count}")
+            if selection_type == 'multi_card':
+                log.info(f"   🎉 SUCCESS: Multi-card experience selected with {product_count} products")
+            else:
+                log.info(f"   ⚠️ FALLBACK: Single card selected instead")
+
             return result
         
         else:

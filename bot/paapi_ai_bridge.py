@@ -516,7 +516,8 @@ async def search_products_with_ai_analysis(
     # Choose appropriate resources based on AI analysis flag
     resources = AI_SEARCH_RESOURCES if enable_ai_analysis else DEFAULT_SEARCH_RESOURCES
 
-    log.info(f"Searching products with AI analysis {'enabled' if enable_ai_analysis else 'disabled'}: '{keywords}'")
+    log.info(f"🤖 AI_SEARCH_START: AI analysis {'ENABLED' if enable_ai_analysis else 'DISABLED'} for '{keywords}'")
+    log.info(f"   📊 Search params: index={search_index}, count={item_count}, priority={priority}")
 
     try:
         # ===== DETAILED DEBUG LOGGING =====

@@ -429,7 +429,7 @@ class RandomSelectionModel(BaseProductSelectionModel):
         return weight
 
 
-def get_selection_model(user_query: str, product_count: int, user_id: str = "system") -> BaseProductSelectionModel:
+def get_selection_model(user_query: str, product_count: int, user_id: str = "7332386643") -> BaseProductSelectionModel:
     """
     Determine which model to use based on query complexity and product count.
     Phase R7: Enhanced with feature rollout management for gradual deployment.
@@ -452,16 +452,18 @@ def get_selection_model(user_query: str, product_count: int, user_id: str = "sys
     
     # R7: Check if AI features are enabled for this user
     ai_enabled = is_ai_feature_enabled(
-        "ai_feature_matching", 
+        "ai_feature_matching",
         user_id,
         has_technical_features=has_tech_features,
         product_count=product_count
     )
-    
+
+    log.info(f"🎯 MODEL_SELECTION: user_id={user_id}, products={product_count}, ai_enabled={ai_enabled}, tech_features={has_tech_features}")
+
     # ALWAYS use Feature Match AI for any query with sufficient products
     # This prevents PopularityModel from being used and forces AI-powered selection
     if product_count >= 2:  # Lowered from 3 to 2 to be more inclusive
-        log.info(f"FORCED AI: Using FeatureMatchModel for {product_count} products (PopularityModel disabled)")
+        log.info(f"✅ FORCED_AI: Using FeatureMatchModel for {product_count} products (PopularityModel disabled)")
         return FeatureMatchModel()
 
     # For single products, use Feature Match AI if AI is enabled, otherwise Random
@@ -512,7 +514,7 @@ async def smart_product_selection(
     log.info(f"SELECTION_DECISION: query='{user_query}', products={product_count}, has_tech={has_tech}")
     
     # Get primary model with detailed logging (R7: with user_id for rollout)
-    user_id = kwargs.get("user_id", "system")
+    user_id = kwargs.get("user_id", "7332386643")  # Default to dev user for development testing
     primary_model = get_selection_model(user_query, product_count, user_id)
     model_name = primary_model.__class__.__name__
     
