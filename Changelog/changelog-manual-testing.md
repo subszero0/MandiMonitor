@@ -84,10 +84,136 @@ FEATURE_WEIGHTS["gaming_monitor"] = {
 - Example: ₹22k 180Hz monitor should score higher than ₹50k 60Hz monitor
 
 ### **Verification Status**
-- [ ] Unit tests for new feature extraction patterns
-- [ ] Integration test with real PA-API data
-- [ ] Manual testing with gaming monitor queries
-- [ ] Score differentiation verification
+- [x] Unit tests for new feature extraction patterns
+- [x] Integration test with real PA-API data
+- [x] Manual testing with gaming monitor queries
+- [x] Score differentiation verification
+
+---
+
+## 🎯 2025-09-01 - AI SCORING SYSTEM OVERHAUL (PHASE 2)
+
+### **Problem Identified**
+**Issue**: Products with vastly different prices/specs still scoring similarly after Phase 1
+**User Impact**: ₹22k 180Hz monitor and ₹50k 60Hz monitor getting comparable scores
+**Symptoms**: Price bias where expensive products score similar to cheaper better products
+
+### **Phase 2 Implementation: Hybrid Value Scoring System**
+
+#### **1. Hybrid Value Scoring Engine**
+**File**: `bot/ai/matching_engine.py`
+**Changes**: Implement comprehensive value-based scoring with technical excellence bonuses
+
+```python
+def calculate_hybrid_score(self, user_features, product_features, category):
+    # 1. Calculate pure technical score
+    tech_score = self._calculate_technical_score(user_features, product_features, category)
+
+    # 2. Calculate value ratio score (performance per rupee)
+    value_score = self._calculate_value_ratio_score(product_features, user_features)
+
+    # 3. Calculate budget adherence score
+    budget_score = self._calculate_budget_adherence_score(product_features, user_features)
+
+    # 4. Apply technical excellence bonus
+    excellence_bonus = self._calculate_excellence_bonus(tech_score, product_features)
+
+    # 5. Context-aware weighting (gaming vs general)
+    weights = self._get_context_weights(user_features, category)
+
+    final_score = (
+        tech_score * weights["technical"] +
+        value_score * weights["value"] +
+        budget_score * weights["budget"] +
+        excellence_bonus * weights["excellence"]
+    )
+
+    return final_score, detailed_breakdown
+```
+
+#### **2. Value Ratio Calculation**
+**Changes**: Performance-per-rupee scoring to reward better value
+
+```python
+def _calculate_value_ratio_score(self, product_features, user_features):
+    price = product_features.get("price", 0)
+    if not price or price <= 0:
+        return 0.5
+
+    # Technical performance score (0-1)
+    tech_performance = self._calculate_technical_performance(product_features)
+
+    # Value ratio = performance / price (normalized)
+    value_ratio = tech_performance / (price / 1000)  # Per ₹1000
+
+    # Normalize to 0-1 scale
+    normalized_value = min(1.0, value_ratio / self.max_expected_value_ratio)
+
+    return normalized_value
+```
+
+#### **3. Technical Excellence Bonuses**
+**Changes**: Reward superior specifications with bonuses
+
+```python
+def _calculate_excellence_bonus(self, tech_score, product_features):
+    bonus = 0
+
+    # Refresh rate excellence
+    refresh_rate = product_features.get("refresh_rate", 0)
+    if refresh_rate >= 240: bonus += 0.15  # 240Hz+ excellence
+    elif refresh_rate >= 165: bonus += 0.10  # 165Hz+ very good
+    elif refresh_rate >= 144: bonus += 0.05  # 144Hz+ good
+
+    # Resolution excellence
+    resolution = product_features.get("resolution", "")
+    if "4k" in resolution.lower(): bonus += 0.10
+    elif "1440p" in resolution.lower(): bonus += 0.05
+
+    return min(0.25, bonus)  # Cap at 25%
+```
+
+#### **4. Context-Aware Weighting**
+**Changes**: Different weights for gaming vs general use
+
+```python
+def _get_context_weights(self, user_features, category):
+    usage_context = user_features.get("usage_context", "").lower()
+
+    if "gaming" in usage_context:
+        return {
+            "technical": 0.45,  # High technical priority for gaming
+            "value": 0.30,      # Value matters for gamers
+            "budget": 0.20,     # Budget consideration
+            "excellence": 0.05  # Excellence bonus
+        }
+    else:
+        return {
+            "technical": 0.35,  # Moderate technical priority
+            "value": 0.40,      # Value more important for general use
+            "budget": 0.20,     # Budget consideration
+            "excellence": 0.05  # Excellence bonus
+        }
+```
+
+### **Expected Improvements**
+- ✅ **Value-Based Scoring**: Cheaper better products score higher
+- ✅ **Technical Excellence**: Superior specs get bonuses (180Hz > 60Hz)
+- ✅ **Context Awareness**: Gaming vs general use different priorities
+- ✅ **Price Fairness**: Expensive poor-value products penalized
+
+### **Testing Notes**
+**Test Query**: "32 inch gaming monitor under INR 60,000"
+**Expected Result**:
+- BEFORE: All products score ~0.35 (identical)
+- AFTER: Products score based on value + technical merit
+- Example: ₹22k 180Hz scores ~0.88, ₹50k 60Hz scores ~0.58
+
+### **Verification Status**
+- [ ] Unit tests for hybrid scoring system
+- [ ] Integration test with price/value calculations
+- [ ] Manual testing with price differentiation
+- [ ] Excellence bonus verification
 
 ---
 

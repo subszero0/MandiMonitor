@@ -240,8 +240,20 @@ class FeatureMatchingEngine:
             # Extract product features using Phase 2 analyzer
             product_features = await self._extract_product_features(product)
             
-            # Score the product
-            score_data = self.score_product(user_features, product_features, category)
+            # Score the product using hybrid scoring system (Phase 2)
+            hybrid_score, detailed_breakdown = self.calculate_hybrid_score(user_features, product_features, category)
+
+            # Create score_data compatible with existing system
+            score_data = {
+                "score": hybrid_score,
+                "rationale": f"Hybrid Score: {hybrid_score:.3f}",
+                "matched_features": ["hybrid_scoring"],  # Placeholder
+                "mismatched_features": [],
+                "missing_features": [],
+                "confidence": detailed_breakdown.get("technical_score", 0.5),
+                "feature_scores": detailed_breakdown,
+                "hybrid_breakdown": detailed_breakdown
+            }
             
             scored_products.append((product, score_data))
         
@@ -774,6 +786,187 @@ class FeatureMatchingEngine:
         )
         
         return min(final_score, 1.0)  # Cap at 1.0
+
+    def calculate_hybrid_score(self, user_features: Dict[str, Any], product_features: Dict[str, Any], category: str = "gaming_monitor") -> Tuple[float, Dict[str, Any]]:
+        """
+        Calculate hybrid score combining technical performance, value ratio, budget adherence, and excellence bonuses.
+
+        Returns:
+            Tuple of (final_score, detailed_breakdown)
+        """
+        start_time = time.time()
+
+        # 1. Calculate pure technical score
+        tech_score = self.score_product(user_features, product_features, category)
+
+        # 2. Calculate value ratio score (performance per rupee)
+        value_score = self._calculate_value_ratio_score(product_features, user_features)
+
+        # 3. Calculate budget adherence score
+        budget_score = self._calculate_budget_adherence_score(product_features, user_features)
+
+        # 4. Apply technical excellence bonus
+        excellence_bonus = self._calculate_excellence_bonus(tech_score, product_features)
+
+        # 5. Context-aware weighting (gaming vs general)
+        weights = self._get_context_weights(user_features, category)
+
+        # 6. Calculate final weighted score
+        final_score = (
+            tech_score * weights["technical"] +
+            value_score * weights["value"] +
+            budget_score * weights["budget"] +
+            excellence_bonus * weights["excellence"]
+        )
+
+        # Ensure final score is within bounds
+        final_score = max(0.0, min(1.0, final_score))
+
+        # Create detailed breakdown
+        detailed_breakdown = {
+            "technical_score": tech_score,
+            "value_score": value_score,
+            "budget_score": budget_score,
+            "excellence_bonus": excellence_bonus,
+            "weights_used": weights,
+            "final_score": final_score,
+            "processing_time_ms": (time.time() - start_time) * 1000
+        }
+
+        log.info(f"🎯 HYBRID_SCORE: {final_score:.3f} | Tech:{tech_score:.3f} | Value:{value_score:.3f} | Budget:{budget_score:.3f} | Excellence:{excellence_bonus:.3f}")
+
+        return final_score, detailed_breakdown
+
+    def _calculate_value_ratio_score(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
+        """Calculate performance-per-rupee score to reward better value"""
+        price = product_features.get("price", 0)
+        if not price or price <= 0:
+            return 0.5  # Neutral score for missing price
+
+        # Get technical performance score (0-1)
+        tech_performance = self._calculate_technical_performance(product_features)
+
+        # Value ratio = performance / price (normalized per ₹1000)
+        value_ratio = tech_performance / (price / 1000)
+
+        # Normalize to 0-1 scale (assume max expected ratio is ~0.8 for top products)
+        max_expected_ratio = 0.8
+        normalized_value = min(1.0, value_ratio / max_expected_ratio)
+
+        log.debug(f"💰 VALUE_RATIO: price=₹{price}, tech_perf={tech_performance:.3f}, ratio={value_ratio:.3f}, score={normalized_value:.3f}")
+        return normalized_value
+
+    def _calculate_budget_adherence_score(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
+        """Calculate how well product fits within user's budget"""
+        product_price = product_features.get("price", 0)
+        user_budget = user_features.get("max_price") or user_features.get("budget")
+
+        if not product_price or not user_budget:
+            return 0.7  # Neutral score when budget info missing
+
+        ratio = product_price / user_budget
+
+        if ratio <= 0.6: return 1.0      # Excellent value (60% of budget)
+        elif ratio <= 0.8: return 0.9    # Good value (80% of budget)
+        elif ratio <= 0.9: return 0.8    # Acceptable (90% of budget)
+        elif ratio <= 1.0: return 0.7    # At budget limit
+        elif ratio <= 1.2: return 0.5    # Slightly over budget
+        elif ratio <= 1.5: return 0.3    # Moderately over budget
+        else: return 0.2                 # Significantly over budget
+
+    def _calculate_excellence_bonus(self, tech_score: float, product_features: Dict[str, Any]) -> float:
+        """Apply bonuses for superior specifications"""
+        bonus = 0.0
+
+        # Refresh rate excellence
+        refresh_rate = product_features.get("refresh_rate", 0)
+        if refresh_rate >= 240: bonus += 0.15  # 240Hz+ excellence
+        elif refresh_rate >= 165: bonus += 0.10  # 165Hz+ very good
+        elif refresh_rate >= 144: bonus += 0.05  # 144Hz+ good
+
+        # Resolution excellence
+        resolution = product_features.get("resolution", "")
+        if "4k" in resolution.lower(): bonus += 0.10
+        elif "1440p" in resolution.lower(): bonus += 0.05
+
+        # Size appropriateness (27-35" optimal for gaming)
+        size = product_features.get("size", 0)
+        if 27 <= size <= 35: bonus += 0.05  # Optimal gaming size range
+
+        # Cap excellence bonus at 25%
+        final_bonus = min(0.25, bonus)
+        log.debug(f"🏆 EXCELLENCE_BONUS: refresh={refresh_rate}Hz, resolution={resolution}, size={size}\", bonus={final_bonus:.3f}")
+        return final_bonus
+
+    def _get_context_weights(self, user_features: Dict[str, Any], category: str) -> Dict[str, float]:
+        """Get context-appropriate weights based on usage"""
+        usage_context = user_features.get("usage_context", "").lower()
+
+        if "gaming" in usage_context or category == "gaming_monitor":
+            return {
+                "technical": 0.45,  # High technical priority for gaming
+                "value": 0.30,      # Value matters for gamers
+                "budget": 0.20,     # Budget consideration
+                "excellence": 0.05  # Excellence bonus
+            }
+        else:
+            return {
+                "technical": 0.35,  # Moderate technical priority
+                "value": 0.40,      # Value more important for general use
+                "budget": 0.20,     # Budget consideration
+                "excellence": 0.05  # Excellence bonus
+            }
+
+    def _calculate_technical_performance(self, product_features: Dict[str, Any]) -> float:
+        """Calculate overall technical performance score (0-1)"""
+        performance_score = 0.0
+        weights_used = 0
+
+        # Refresh rate performance (high weight for gaming)
+        refresh_rate = product_features.get("refresh_rate", 0)
+        if refresh_rate >= 240: refresh_perf = 1.0
+        elif refresh_rate >= 165: refresh_perf = 0.8
+        elif refresh_rate >= 144: refresh_perf = 0.7
+        elif refresh_rate >= 120: refresh_perf = 0.6
+        elif refresh_rate >= 75: refresh_perf = 0.4
+        else: refresh_perf = 0.2
+
+        performance_score += refresh_perf * 0.4  # 40% weight
+        weights_used += 0.4
+
+        # Resolution performance
+        resolution = product_features.get("resolution", "").lower()
+        if "4k" in resolution: res_perf = 1.0
+        elif "1440p" in resolution: res_perf = 0.8
+        elif "1080p" in resolution: res_perf = 0.6
+        else: res_perf = 0.4
+
+        performance_score += res_perf * 0.3  # 30% weight
+        weights_used += 0.3
+
+        # Size appropriateness
+        size = product_features.get("size", 0)
+        if 24 <= size <= 40:  # Reasonable size range
+            size_perf = 1.0
+        elif 20 <= size <= 50:  # Acceptable range
+            size_perf = 0.8
+        else:
+            size_perf = 0.5
+
+        performance_score += size_perf * 0.2  # 20% weight
+        weights_used += 0.2
+
+        # Panel type bonus
+        panel = product_features.get("panel_type", "").lower()
+        if "ips" in panel: panel_perf = 0.1
+        elif "va" in panel: panel_perf = 0.05
+        else: panel_perf = 0.0
+
+        performance_score += panel_perf * 0.1  # 10% weight
+        weights_used += 0.1
+
+        final_performance = performance_score / weights_used if weights_used > 0 else 0.5
+        return min(1.0, final_performance)
     
     def _calculate_feature_quality(self, feature_name: str, feature_value: Any) -> float:
         """Calculate quality score for a specific feature."""
