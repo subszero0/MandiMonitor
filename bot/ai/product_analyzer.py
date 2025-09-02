@@ -233,14 +233,26 @@ class ProductFeatureAnalyzer:
         data_sources = self._prioritize_data_sources(product_data)
 
         # Special handling for price (direct field extraction)
-        price = product_data.get("price")
-        if price is not None and isinstance(price, (int, float)) and price > 0:
-            # Convert paise to rupees for feature storage
-            price_rupees = price / 100 if price > 10000 else price  # Handle both paise and rupee formats
-            extracted_features["price"] = price_rupees
-            extraction_sources["price"] = "price_field"
-            confidence_scores["price"] = 1.0  # Direct field extraction = highest confidence
-            log.debug(f"Extracted price from direct field: ₹{price_rupees:,.2f}")
+        price_raw = product_data.get("price")
+        if price_raw is not None:
+            # Handle both string and numeric prices
+            try:
+                if isinstance(price_raw, str):
+                    # Remove any non-numeric characters and convert
+                    price_clean = ''.join(c for c in price_raw if c.isdigit() or c == '.')
+                    price_numeric = float(price_clean) if price_clean else 0
+                else:
+                    price_numeric = float(price_raw) if price_raw else 0
+
+                if price_numeric > 0:
+                    # Convert paise to rupees for feature storage
+                    price_rupees = price_numeric / 100 if price_numeric > 10000 else price_numeric
+                    extracted_features["price"] = price_rupees
+                    extraction_sources["price"] = "price_field"
+                    confidence_scores["price"] = 1.0  # Direct field extraction = highest confidence
+                    log.debug(f"Extracted price from direct field: ₹{price_rupees:,.2f}")
+            except (ValueError, TypeError) as e:
+                log.debug(f"Failed to parse price '{price_raw}': {e}")
 
         # Extract features from each source in priority order
         for source_name, source_data in data_sources.items():
