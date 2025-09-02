@@ -1006,9 +1006,17 @@ class OfficialPaapiClient:
         if all_items:
             prices = []
             for item in all_items:
-                price_info = item.get("offers", {}).get("listings", [{}])[0].get("price", {})
-                if price_info and "amount" in price_info:
-                    prices.append(price_info["amount"] / 100)  # Convert paise to rupees
+                # Extract price using the same object-based logic as the main processing
+                price_amount = None
+                if hasattr(item, 'offers') and item.offers and hasattr(item.offers, 'listings') and item.offers.listings:
+                    listing = item.offers.listings[0]  # Get primary offer
+                    if hasattr(listing, 'price') and listing.price:
+                        price_info = listing.price
+                        if hasattr(price_info, 'amount') and price_info.amount:
+                            price_amount = float(price_info.amount)
+
+                if price_amount:
+                    prices.append(price_amount / 100)  # Convert paise to rupees
 
             if prices:
                 min_found = min(prices)

@@ -1275,7 +1275,19 @@ class FeatureMatchingEngine:
 
     def _calculate_value_ratio_score(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
         """Calculate performance-per-rupee score with tiered value assessment"""
-        price = product_features.get("price", 0)
+        price_raw = product_features.get("price", 0)
+
+        # Handle string to numeric conversion
+        try:
+            if isinstance(price_raw, str):
+                # Remove any non-numeric characters and convert
+                price_clean = ''.join(c for c in price_raw if c.isdigit() or c == '.')
+                price = float(price_clean) if price_clean else 0
+            else:
+                price = float(price_raw) if price_raw else 0
+        except (ValueError, TypeError):
+            price = 0
+
         if not price or price <= 0:
             return 0.5  # Neutral score for missing price
 
@@ -1329,8 +1341,28 @@ class FeatureMatchingEngine:
 
     def _calculate_budget_adherence_score(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
         """Calculate how well product fits within user's budget"""
-        product_price = product_features.get("price", 0)
-        user_budget = user_features.get("max_price") or user_features.get("budget")
+        product_price_raw = product_features.get("price", 0)
+        user_budget_raw = user_features.get("max_price") or user_features.get("budget")
+
+        # Handle string to numeric conversion for product price
+        try:
+            if isinstance(product_price_raw, str):
+                product_price_clean = ''.join(c for c in product_price_raw if c.isdigit() or c == '.')
+                product_price = float(product_price_clean) if product_price_clean else 0
+            else:
+                product_price = float(product_price_raw) if product_price_raw else 0
+        except (ValueError, TypeError):
+            product_price = 0
+
+        # Handle string to numeric conversion for user budget
+        try:
+            if isinstance(user_budget_raw, str):
+                user_budget_clean = ''.join(c for c in user_budget_raw if c.isdigit() or c == '.')
+                user_budget = float(user_budget_clean) if user_budget_clean else 0
+            else:
+                user_budget = float(user_budget_raw) if user_budget_raw else 0
+        except (ValueError, TypeError):
+            user_budget = 0
 
         if not product_price or not user_budget:
             return 0.7  # Neutral score when budget info missing

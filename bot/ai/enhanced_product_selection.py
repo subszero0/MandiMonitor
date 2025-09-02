@@ -90,7 +90,12 @@ class EnhancedFeatureMatchModel:
 
         # Extract user features
         user_features = self.feature_extractor.extract_features(user_query, category="gaming_monitor")
-        log.info(f"🔍 FEATURE_EXTRACTION: found {len(user_features.get('features', []))} features")
+
+        # Count actual features (excluding metadata)
+        metadata_keys = {'confidence', 'processing_time_ms', 'technical_query', 'matched_features_count', 'technical_density', 'category_detected', 'marketing_heavy'}
+        actual_features = {k: v for k, v in user_features.items() if k not in metadata_keys}
+
+        log.info(f"🔍 FEATURE_EXTRACTION: found {len(actual_features)} features (total keys: {len(user_features)})")
         
         if not user_features:
             return await self._fallback_to_popularity(products, user_query, "No technical features detected")
