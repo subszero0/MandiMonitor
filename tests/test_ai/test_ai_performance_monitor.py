@@ -45,7 +45,7 @@ class TestAIPerformanceMonitor:
         """Test logging successful model selections."""
         selection_metadata = {
             "processing_time_ms": 150.5,
-            "ai_confidence": 0.85,
+            "ai_score": 0.85,
             "matched_features": ["refresh_rate", "size"]
         }
         
@@ -164,7 +164,7 @@ class TestAIPerformanceMonitor:
                     product_count=10,
                     selection_metadata={
                         "processing_time_ms": 100,
-                        "ai_confidence": 0.8
+                        "ai_score": 0.8
                     },
                     success=True
                 )

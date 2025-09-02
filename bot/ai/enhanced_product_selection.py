@@ -16,6 +16,32 @@ from .enhanced_carousel import build_ai_selection_message, get_carousel_analytic
 log = getLogger(__name__)
 
 
+def safe_string_extract(value: Any, default: str = "") -> str:
+    """
+    Safely extract string value from potentially complex data structures.
+
+    Handles cases where Amazon API returns nested dictionaries instead of simple strings.
+    """
+    if value is None:
+        return default
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, dict):
+        # Try to extract from common dictionary structures
+        if 'value' in value:
+            return str(value['value'])
+        # Fallback to string representation
+        return str(value)
+
+    # For any other type, convert to string
+    try:
+        return str(value)
+    except Exception:
+        return default
+
+
 class EnhancedFeatureMatchModel:
     """
     Enhanced AI-powered product selection with multi-card support.
@@ -387,11 +413,11 @@ def generate_user_explanations(score_breakdown: Dict[str, Any], product_features
         explanations.append("✅ Strong technical performance")
 
     # Brand and panel type bonuses
-    panel_type = product_features.get("panel_type", "").lower()
+    panel_type = safe_string_extract(product_features.get("panel_type", "")).lower()
     if "ips" in panel_type:
         explanations.append("🎨 IPS panel for accurate colors and wide viewing angles")
 
-    brand = product_features.get("brand", "").lower()
+    brand = safe_string_extract(product_features.get("brand", "")).lower()
     if brand in ["samsung", "lg", "asus", "msi", "acer"]:
         explanations.append(f"🏷️ Trusted {brand.title()} brand with good reputation")
 

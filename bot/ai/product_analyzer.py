@@ -25,6 +25,32 @@ from .vocabularies import get_category_vocabulary
 log = getLogger(__name__)
 
 
+def safe_string_extract(value: Any, default: str = "") -> str:
+    """
+    Safely extract string value from potentially complex data structures.
+
+    Handles cases where Amazon API returns nested dictionaries instead of simple strings.
+    """
+    if value is None:
+        return default
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, dict):
+        # Try to extract from common dictionary structures
+        if 'value' in value:
+            return str(value['value'])
+        # Fallback to string representation
+        return str(value)
+
+    # For any other type, convert to string
+    try:
+        return str(value)
+    except Exception:
+        return default
+
+
 class ProductFeatureAnalyzer:
     """Extract technical specifications from Amazon product data with confidence scoring."""
 
@@ -55,6 +81,15 @@ class ProductFeatureAnalyzer:
                 re.compile(r"(\d+)\s*fps\b", re.IGNORECASE),
                 re.compile(r"(\d+)\s*hertz\b", re.IGNORECASE),
                 re.compile(r"refresh\s*rate[:\s]*(\d+)", re.IGNORECASE),
+                re.compile(r"(\d+)hz\s*refresh", re.IGNORECASE),
+                re.compile(r"(\d+)fps\s*refresh", re.IGNORECASE),
+            ],
+            "response_time": [
+                re.compile(r"(\d+)\s*ms\b", re.IGNORECASE),
+                re.compile(r"response\s*time[:\s]*(\d+)", re.IGNORECASE),
+                re.compile(r"(\d+)ms\s*response", re.IGNORECASE),
+                re.compile(r"gtg[:\s]*(\d+)", re.IGNORECASE),  # Gray-to-gray
+                re.compile(r"mpprt[:\s]*(\d+)", re.IGNORECASE),  # Moving picture response time
             ],
             "size": [
                 re.compile(r"(\d+(?:\.\d+)?)\s*inch\b", re.IGNORECASE),
@@ -65,10 +100,20 @@ class ProductFeatureAnalyzer:
                 re.compile(r"(\d+(?:\.\d+)?)\s*cm\b", re.IGNORECASE),  # Convert to inches
             ],
             "resolution": [
-                re.compile(r"\b(4k|uhd|2160p)\b", re.IGNORECASE),
-                re.compile(r"\b(qhd|wqhd|1440p)\b", re.IGNORECASE),
-                re.compile(r"\b(fhd|1080p|full\s*hd)\b", re.IGNORECASE),
+                re.compile(r"\b(4k|uhd|2160p|ultra\s*hd)\b", re.IGNORECASE),
+                re.compile(r"\b(qhd|wqhd|1440p|quad\s*hd)\b", re.IGNORECASE),
+                re.compile(r"\b(fhd|1080p|full\s*hd|fullhd)\b", re.IGNORECASE),
+                re.compile(r"\b(hd|720p)\b", re.IGNORECASE),
                 re.compile(r"(\d+)\s*x\s*(\d+)", re.IGNORECASE),  # Extract pixel dimensions
+                re.compile(r"(\d{3,4})p\b", re.IGNORECASE),  # 1080p, 1440p, 2160p
+                re.compile(r"(\d{3,4})\s*by\s*(\d{3,4})", re.IGNORECASE),  # 1920 by 1080
+            ],
+            "aspect_ratio": [
+                re.compile(r"(\d+):(\d+)\s*aspect", re.IGNORECASE),
+                re.compile(r"aspect\s*ratio[:\s]*(\d+):(\d+)", re.IGNORECASE),
+                re.compile(r"(\d+):(\d+)\s*ar\b", re.IGNORECASE),
+                re.compile(r"\b(ultrawide|ultra\s*wide)\b", re.IGNORECASE),
+                re.compile(r"\b(widescreen|wide\s*screen)\b", re.IGNORECASE),
             ],
             "curvature": [
                 re.compile(r"\b(curved)\b", re.IGNORECASE),
@@ -76,11 +121,25 @@ class ProductFeatureAnalyzer:
                 re.compile(r"(\d+r)\b", re.IGNORECASE),  # Curvature radius like 1800R
             ],
             "panel_type": [
-                re.compile(r"\b(ips)\b", re.IGNORECASE),
-                re.compile(r"\b(va)\b", re.IGNORECASE),
-                re.compile(r"\b(tn)\b", re.IGNORECASE),
-                re.compile(r"\b(oled)\b", re.IGNORECASE),
-                re.compile(r"\b(qled)\b", re.IGNORECASE),
+                re.compile(r"\b(ips|in-plane switching)\b", re.IGNORECASE),
+                re.compile(r"\b(va|vertical alignment)\b", re.IGNORECASE),
+                re.compile(r"\b(tn|twisted nematic)\b", re.IGNORECASE),
+                re.compile(r"\b(oled|organic led|amoled)\b", re.IGNORECASE),
+                re.compile(r"\b(qled|quantum dot)\b", re.IGNORECASE),
+                re.compile(r"\b(led|light emitting diode)\b", re.IGNORECASE),
+                re.compile(r"\b(lcd|liquid crystal)\b", re.IGNORECASE),
+            ],
+            "connectivity": [
+                re.compile(r"\b(hdmi|hdmi2\.1|hdmi2\.0)\b", re.IGNORECASE),
+                re.compile(r"\b(displayport|dp|dp1\.4|dp1\.2)\b", re.IGNORECASE),
+                re.compile(r"\b(dvi)\b", re.IGNORECASE),
+                re.compile(r"\b(vga)\b", re.IGNORECASE),
+                re.compile(r"\b(usb|usb-c|type-c)\b", re.IGNORECASE),
+                re.compile(r"\b(thunderbolt)\b", re.IGNORECASE),
+            ],
+            "hdr_support": [
+                re.compile(r"\b(hdr|hdr10|hdr10\+|dolby vision)\b", re.IGNORECASE),
+                re.compile(r"high\s*dynamic\s*range", re.IGNORECASE),
             ],
             "brand": [
                 re.compile(r"\b(samsung|lg|dell|asus|acer|msi|benq|viewsonic|aoc|hp|lenovo)\b", re.IGNORECASE),
@@ -90,10 +149,25 @@ class ProductFeatureAnalyzer:
                 re.compile(r"\b(laptop|notebook|computer)\b", re.IGNORECASE),
                 re.compile(r"\b(headphone|earphone|headset)\b", re.IGNORECASE),
             ],
+            "brightness": [
+                re.compile(r"(\d+)\s*cd/m2\b", re.IGNORECASE),
+                re.compile(r"(\d+)\s*nits\b", re.IGNORECASE),
+                re.compile(r"brightness[:\s]*(\d+)", re.IGNORECASE),
+                re.compile(r"(\d+)\s*cd\s*/\s*m²", re.IGNORECASE),
+            ],
+            "color_accuracy": [
+                re.compile(r"(\d+)%\s*srgb\b", re.IGNORECASE),
+                re.compile(r"(\d+)%\s*dci-p3\b", re.IGNORECASE),
+                re.compile(r"(\d+)%\s*adobe\s*rgb\b", re.IGNORECASE),
+                re.compile(r"sRGB[:\s]*(\d+)%", re.IGNORECASE),
+                re.compile(r"DCI-P3[:\s]*(\d+)%", re.IGNORECASE),
+            ],
             "usage_context": [
                 re.compile(r"\b(gaming|game|gamer)\b", re.IGNORECASE),
-                re.compile(r"\b(professional|work|office)\b", re.IGNORECASE),
-                re.compile(r"\b(coding|programming|development)\b", re.IGNORECASE),
+                re.compile(r"\b(professional|work|office|business)\b", re.IGNORECASE),
+                re.compile(r"\b(coding|programming|development|design)\b", re.IGNORECASE),
+                re.compile(r"\b(content|creator|creation|streaming)\b", re.IGNORECASE),
+                re.compile(r"\b(multimedia|entertainment|movie|cinema)\b", re.IGNORECASE),
             ],
             "price": [
                 re.compile(r"₹\s*([\d,]+)", re.IGNORECASE),
@@ -105,7 +179,10 @@ class ProductFeatureAnalyzer:
         """Set up validation ranges for extracted features."""
         self.validation_ranges = {
             "refresh_rate": {"min": 30, "max": 480, "common": [60, 75, 120, 144, 165, 240, 360]},
+            "response_time": {"min": 1, "max": 20, "common": [1, 2, 4, 5, 8, 10, 15]},
             "size": {"min": 10.0, "max": 65.0, "common": [21.5, 24, 27, 32, 34, 43, 49, 55]},
+            "brightness": {"min": 200, "max": 2000, "common": [250, 300, 350, 400, 500]},
+            "color_accuracy": {"min": 60, "max": 100, "common": [72, 85, 90, 95, 99]},
             "resolution_pixels": {
                 "4k": (3840, 2160),
                 "1440p": (2560, 1440), 
@@ -154,7 +231,17 @@ class ProductFeatureAnalyzer:
         
         # Field precedence: TechnicalInfo > Features > Title
         data_sources = self._prioritize_data_sources(product_data)
-        
+
+        # Special handling for price (direct field extraction)
+        price = product_data.get("price")
+        if price is not None and isinstance(price, (int, float)) and price > 0:
+            # Convert paise to rupees for feature storage
+            price_rupees = price / 100 if price > 10000 else price  # Handle both paise and rupee formats
+            extracted_features["price"] = price_rupees
+            extraction_sources["price"] = "price_field"
+            confidence_scores["price"] = 1.0  # Direct field extraction = highest confidence
+            log.debug(f"Extracted price from direct field: ₹{price_rupees:,.2f}")
+
         # Extract features from each source in priority order
         for source_name, source_data in data_sources.items():
             if not source_data:
@@ -228,9 +315,35 @@ class ProductFeatureAnalyzer:
             oldest_key = next(iter(self._feature_cache))
             del self._feature_cache[oldest_key]
 
-        self._feature_cache[cache_key] = result
-
         return result
+
+    def calculate_confidence(self, features: Dict) -> float:
+        """
+        Calculate overall confidence from extracted features.
+
+        Args:
+            features: Features dictionary returned by analyze_product_features
+
+        Returns:
+            float: Overall confidence score (0.0 to 1.0)
+        """
+        if not features:
+            return 0.0
+
+        # If it's the new format with overall_confidence
+        if isinstance(features, dict) and "overall_confidence" in features:
+            return features["overall_confidence"]
+
+        # If it's the old format, calculate from individual feature confidences
+        if isinstance(features, dict) and any(isinstance(v, dict) and "confidence" in v for v in features.values()):
+            confidences = []
+            for feature_value in features.values():
+                if isinstance(feature_value, dict) and "confidence" in feature_value:
+                    confidences.append(feature_value["confidence"])
+            return sum(confidences) / len(confidences) if confidences else 0.0
+
+        # Fallback for simple dict format
+        return 0.5  # Neutral confidence
 
     def _prioritize_data_sources(self, product_data: Dict) -> Dict[str, Any]:
         """
@@ -349,7 +462,7 @@ class ProductFeatureAnalyzer:
         if not raw_value:
             return None
             
-        raw_value = str(raw_value).strip().lower()
+        raw_value = safe_string_extract(raw_value).strip().lower()
         
         if feature_name == "refresh_rate":
             # Extract numeric value from refresh rate

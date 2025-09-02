@@ -220,13 +220,16 @@ class TestProductFeatureAnalyzer:
                 "title": "Full HD 1080p Monitor",
                 "expected": {"resolution": "1080p"}
             }
-        ]
-        
+                        ]
+
         for case in test_cases:
-            product_data = {"asin": "TEST", **case}
+            case_copy = case.copy()
+            expected = case_copy.pop("expected")
+            # Use unique ASIN for each test case to avoid cache pollution
+            product_data = {"asin": f"TEST_{hash(str(case))}", **case_copy}
             result = await analyzer.analyze_product_features(product_data)
-            
-            for expected_feature, expected_value in case["expected"].items():
+
+            for expected_feature, expected_value in expected.items():
                 assert expected_feature in result, f"Missing {expected_feature} for case: {case}"
                 assert result[expected_feature]["value"] == expected_value, \
                     f"Wrong {expected_feature} value: expected {expected_value}, got {result[expected_feature]['value']}"
@@ -323,7 +326,8 @@ class TestProductFeatureAnalyzer:
         ]
         
         for case in brand_test_cases:
-            product_data = {"asin": "BRAND_TEST", **case}
+            # Use unique ASIN to avoid cache pollution
+            product_data = {"asin": f"BRAND_TEST_{hash(str(case))}", **case}
             result = await analyzer.analyze_product_features(product_data)
             
             if "brand" in result:

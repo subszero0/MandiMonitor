@@ -21,6 +21,32 @@ from .vocabularies import get_category_vocabulary
 log = getLogger(__name__)
 
 
+def safe_string_extract(value: Any, default: str = "") -> str:
+    """
+    Safely extract string value from potentially complex data structures.
+
+    Handles cases where Amazon API returns nested dictionaries instead of simple strings.
+    """
+    if value is None:
+        return default
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, dict):
+        # Try to extract from common dictionary structures
+        if 'value' in value:
+            return str(value['value'])
+        # Fallback to string representation
+        return str(value)
+
+    # For any other type, convert to string
+    try:
+        return str(value)
+    except Exception:
+        return default
+
+
 class FeatureExtractor:
     """Extract technical features from user queries using regex patterns."""
 
@@ -208,7 +234,7 @@ class FeatureExtractor:
         if not value:
             return None
             
-        value = value.strip().lower()
+        value = safe_string_extract(value).strip().lower()
         
         # Apply synonyms
         if feature_name in self.synonyms and value in self.synonyms[feature_name]:

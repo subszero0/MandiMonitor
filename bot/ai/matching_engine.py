@@ -20,6 +20,32 @@ from .vocabularies import get_feature_weights
 log = getLogger(__name__)
 
 
+def safe_string_extract(value: Any, default: str = "") -> str:
+    """
+    Safely extract string value from potentially complex data structures.
+
+    Handles cases where Amazon API returns nested dictionaries instead of simple strings.
+    """
+    if value is None:
+        return default
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, dict):
+        # Try to extract from common dictionary structures
+        if 'value' in value:
+            return str(value['value'])
+        # Fallback to string representation
+        return str(value)
+
+    # For any other type, convert to string
+    try:
+        return str(value)
+    except Exception:
+        return default
+
+
 class FeatureMatchingEngine:
     """Core engine for scoring products based on feature alignment."""
 
@@ -290,8 +316,8 @@ class FeatureMatchingEngine:
         if not user_value or not product_value:
             return 0.0
         
-        user_str = str(user_value).lower().strip()
-        product_str = str(product_value).lower().strip()
+        user_str = safe_string_extract(user_value).lower().strip()
+        product_str = safe_string_extract(product_value).lower().strip()
         
         # Exact match
         if user_str == product_str:
@@ -441,9 +467,9 @@ class FeatureMatchingEngine:
                     elif feature == "curvature":
                         matched_parts.append(f"curvature={product_val}")
                     elif feature == "panel_type":
-                        if usage_context == "coding" and product_val.lower() == "ips":
+                        if usage_context == "coding" and safe_string_extract(product_val).lower() == "ips":
                             matched_parts.append(f"IPS panel (ideal for coding - accurate colors)")
-                        elif usage_context == "gaming" and product_val.lower() in ["tn", "va"]:
+                        elif usage_context == "gaming" and safe_string_extract(product_val).lower() in ["tn", "va"]:
                             matched_parts.append(f"{product_val.upper()} panel (fast response for gaming)")
                         else:
                             matched_parts.append(f"panel={product_val.upper()}")
@@ -834,8 +860,8 @@ class FeatureMatchingEngine:
         }
 
         # Enhanced transparency logging - Phase 3
-        product_title = product_features.get('title', 'Unknown Product')[:50]  # Truncate long titles
-        usage_context = user_features.get('usage_context', '').lower()
+        product_title = safe_string_extract(product_features.get('title', 'Unknown Product'))[:50]  # Truncate long titles
+        usage_context = safe_string_extract(user_features.get('usage_context', '')).lower()
         context_type = 'Gaming' if 'gaming' in usage_context else 'General'
 
         log.info(f"🎯 HYBRID_SCORE_BREAKDOWN: {final_score:.3f} for '{product_title}'")
@@ -888,7 +914,12 @@ class FeatureMatchingEngine:
         total_weight = 0.0
 
         # Refresh rate scoring (gaming critical)
-        refresh_rate = product_features.get("refresh_rate", 0)
+        refresh_rate_str = product_features.get("refresh_rate", "0")
+        try:
+            refresh_rate = int(float(refresh_rate_str)) if refresh_rate_str else 0
+        except (ValueError, TypeError):
+            refresh_rate = 0
+
         if refresh_rate >= 240: refresh_score = 1.0
         elif refresh_rate >= 165: refresh_score = 0.9
         elif refresh_rate >= 144: refresh_score = 0.8
@@ -911,7 +942,7 @@ class FeatureMatchingEngine:
         total_weight += performance_components['response_time']
 
         # Resolution scoring (with gaming considerations)
-        resolution = product_features.get("resolution", "").lower()
+        resolution = safe_string_extract(product_features.get("resolution", "")).lower()
         if "4k" in resolution and refresh_rate >= 120: resolution_score = 0.9  # 4K with good refresh
         elif "4k" in resolution: resolution_score = 0.7  # 4K with poor refresh
         elif "1440p" in resolution: resolution_score = 0.8
@@ -940,7 +971,7 @@ class FeatureMatchingEngine:
         total_weight = 0.0
 
         # Color accuracy scoring (professional critical)
-        color_gamut = product_features.get("color_gamut", "").lower()
+        color_gamut = safe_string_extract(product_features.get("color_gamut", "")).lower()
         if "99%" in color_gamut or "100%" in color_gamut: color_score = 1.0
         elif "95%" in color_gamut or "97%" in color_gamut: color_score = 0.9
         elif "90%" in color_gamut: color_score = 0.8
@@ -951,7 +982,7 @@ class FeatureMatchingEngine:
         total_weight += performance_components['color_accuracy']
 
         # Resolution scoring (higher resolution preferred)
-        resolution = product_features.get("resolution", "").lower()
+        resolution = safe_string_extract(product_features.get("resolution", "")).lower()
         if "4k" in resolution: resolution_score = 1.0
         elif "1440p" in resolution: resolution_score = 0.8
         elif "1080p" in resolution: resolution_score = 0.6
@@ -961,7 +992,7 @@ class FeatureMatchingEngine:
         total_weight += performance_components['resolution']
 
         # Panel type scoring (IPS preferred for professionals)
-        panel_type = product_features.get("panel_type", "").lower()
+        panel_type = safe_string_extract(product_features.get("panel_type", "")).lower()
         if "ips" in panel_type: panel_score = 1.0
         elif "va" in panel_type: panel_score = 0.7
         else: panel_score = 0.5
@@ -1022,7 +1053,7 @@ class FeatureMatchingEngine:
         adaptive_weights = base_weights.copy()
 
         # Adjust weights based on user emphasis in query
-        user_query = user_features.get('original_query', '').lower()
+        user_query = safe_string_extract(user_features.get('original_query', '')).lower()
 
         # Price-sensitive users get higher value and budget weights
         if any(term in user_query for term in ['cheap', 'budget', 'affordable', 'low price', 'inexpensive']):
@@ -1111,7 +1142,7 @@ class FeatureMatchingEngine:
             return 0.5
 
         # Get user's context to adjust expectations
-        usage_context = user_requirements.get('usage_context', '').lower()
+        usage_context = safe_string_extract(user_requirements.get('usage_context', '')).lower()
         user_budget = user_requirements.get('max_price') or user_requirements.get('budget')
 
         # Gaming users expect higher refresh rates
@@ -1146,9 +1177,9 @@ class FeatureMatchingEngine:
         if not resolution:
             return 0.5
 
-        resolution = resolution.lower()
+        resolution = safe_string_extract(resolution).lower()
         size = user_requirements.get('size', 0)
-        usage_context = user_requirements.get('usage_context', '').lower()
+        usage_context = safe_string_extract(user_requirements.get('usage_context', '')).lower()
 
         # 4K quality assessment
         if '4k' in resolution or '3840' in resolution:
@@ -1193,7 +1224,7 @@ class FeatureMatchingEngine:
         if not isinstance(response_time, (int, float)):
             return 0.5
 
-        usage_context = user_requirements.get('usage_context', '').lower()
+        usage_context = safe_string_extract(user_requirements.get('usage_context', '')).lower()
 
         # Only critical for gaming users
         if 'gaming' in usage_context:
@@ -1219,7 +1250,7 @@ class FeatureMatchingEngine:
             return 0.5
 
         panel_type = panel_type.lower()
-        usage_context = user_requirements.get('usage_context', '').lower()
+        usage_context = safe_string_extract(user_requirements.get('usage_context', '')).lower()
 
         # IPS panels preferred for professionals (color accuracy)
         if 'professional' in usage_context or 'design' in usage_context or 'creative' in usage_context:
@@ -1243,7 +1274,7 @@ class FeatureMatchingEngine:
             else: return 0.5
 
     def _calculate_value_ratio_score(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
-        """Calculate performance-per-rupee score to reward better value"""
+        """Calculate performance-per-rupee score with tiered value assessment"""
         price = product_features.get("price", 0)
         if not price or price <= 0:
             return 0.5  # Neutral score for missing price
@@ -1251,15 +1282,50 @@ class FeatureMatchingEngine:
         # Get technical performance score (0-1)
         tech_performance = self._calculate_technical_performance(product_features)
 
-        # Value ratio = performance / price (normalized per ₹1000)
-        value_ratio = tech_performance / (price / 1000)
+        # Price tier analysis for context-aware value assessment
+        price_rupees = price / 100  # Convert paise to rupees
 
-        # Normalize to 0-1 scale (assume max expected ratio is ~0.8 for top products)
-        max_expected_ratio = 0.8
-        normalized_value = min(1.0, value_ratio / max_expected_ratio)
+        # Define performance expectations by price tier
+        if price_rupees <= 15000:  # Budget tier
+            expected_performance = 0.4  # Basic expectations
+            value_multiplier = 1.2  # Reward good value in budget segment
+        elif price_rupees <= 30000:  # Mid-range tier
+            expected_performance = 0.6  # Good performance expected
+            value_multiplier = 1.0  # Standard value assessment
+        elif price_rupees <= 50000:  # Premium tier
+            expected_performance = 0.75  # High performance expected
+            value_multiplier = 0.9  # Premium products need to justify price
+        else:  # Ultra-premium tier
+            expected_performance = 0.85  # Excellent performance expected
+            value_multiplier = 0.8  # Very high bar for ultra-premium
 
-        log.debug(f"💰 VALUE_RATIO: price=₹{price}, tech_perf={tech_performance:.3f}, ratio={value_ratio:.3f}, score={normalized_value:.3f}")
-        return normalized_value
+        # Calculate value efficiency (performance relative to price expectations)
+        performance_efficiency = tech_performance / expected_performance
+
+        # Apply price sensitivity adjustment
+        # More expensive products need higher performance to score well
+        price_penalty = max(0.7, 1.0 - (price_rupees / 100000))  # Reduce score for very expensive items
+
+        # Calculate base value score
+        base_value_score = min(1.0, performance_efficiency * value_multiplier * price_penalty)
+
+        # Apply diminishing returns for overpriced products
+        if tech_performance < expected_performance * 0.8:
+            # Underperforming for price tier - significant penalty
+            base_value_score *= 0.6
+        elif tech_performance < expected_performance:
+            # Slightly underperforming - moderate penalty
+            base_value_score *= 0.8
+
+        # Bonus for exceptional value (high performance at low price)
+        if tech_performance >= expected_performance * 1.2 and price_rupees <= 25000:
+            base_value_score = min(1.0, base_value_score * 1.1)
+
+        # Ensure value score stays within reasonable bounds
+        final_value_score = max(0.1, min(1.0, base_value_score))
+
+        log.debug(f"💰 ENHANCED_VALUE: ₹{price_rupees:,.0f} | perf={tech_performance:.3f} | expected={expected_performance:.3f} | efficiency={performance_efficiency:.3f} | score={final_value_score:.3f}")
+        return final_value_score
 
     def _calculate_budget_adherence_score(self, product_features: Dict[str, Any], user_features: Dict[str, Any]) -> float:
         """Calculate how well product fits within user's budget"""
@@ -1284,18 +1350,28 @@ class FeatureMatchingEngine:
         bonus = 0.0
 
         # Refresh rate excellence
-        refresh_rate = product_features.get("refresh_rate", 0)
+        refresh_rate_str = product_features.get("refresh_rate", "0")
+        try:
+            refresh_rate = int(float(refresh_rate_str)) if refresh_rate_str else 0
+        except (ValueError, TypeError):
+            refresh_rate = 0
+
         if refresh_rate >= 240: bonus += 0.15  # 240Hz+ excellence
         elif refresh_rate >= 165: bonus += 0.10  # 165Hz+ very good
         elif refresh_rate >= 144: bonus += 0.05  # 144Hz+ good
 
         # Resolution excellence
-        resolution = product_features.get("resolution", "")
+        resolution = safe_string_extract(product_features.get("resolution", ""))
         if "4k" in resolution.lower(): bonus += 0.10
         elif "1440p" in resolution.lower(): bonus += 0.05
 
         # Size appropriateness (27-35" optimal for gaming)
-        size = product_features.get("size", 0)
+        size_str = product_features.get("size", "0")
+        try:
+            size = float(size_str) if size_str else 0
+        except (ValueError, TypeError):
+            size = 0
+
         if 27 <= size <= 35: bonus += 0.05  # Optimal gaming size range
 
         # Cap excellence bonus at 25%
@@ -1305,7 +1381,7 @@ class FeatureMatchingEngine:
 
     def _get_context_weights(self, user_features: Dict[str, Any], category: str) -> Dict[str, float]:
         """Get context-appropriate weights based on usage"""
-        usage_context = user_features.get("usage_context", "").lower()
+        usage_context = safe_string_extract(user_features.get("usage_context", "")).lower()
 
         if "gaming" in usage_context or category == "gaming_monitor":
             return {
@@ -1323,55 +1399,147 @@ class FeatureMatchingEngine:
             }
 
     def _calculate_technical_performance(self, product_features: Dict[str, Any]) -> float:
-        """Calculate overall technical performance score (0-1)"""
+        """Calculate overall technical performance score (0-1) with enhanced features"""
         performance_score = 0.0
-        weights_used = 0
+        total_weight = 0.0
 
-        # Refresh rate performance (high weight for gaming)
-        refresh_rate = product_features.get("refresh_rate", 0)
+        # Refresh rate performance (25% weight - critical for gaming)
+        refresh_rate_str = product_features.get("refresh_rate", "0")
+        try:
+            refresh_rate = int(float(refresh_rate_str)) if refresh_rate_str else 0
+        except (ValueError, TypeError):
+            refresh_rate = 0
+
         if refresh_rate >= 240: refresh_perf = 1.0
-        elif refresh_rate >= 165: refresh_perf = 0.8
-        elif refresh_rate >= 144: refresh_perf = 0.7
-        elif refresh_rate >= 120: refresh_perf = 0.6
-        elif refresh_rate >= 75: refresh_perf = 0.4
-        else: refresh_perf = 0.2
+        elif refresh_rate >= 165: refresh_perf = 0.9
+        elif refresh_rate >= 144: refresh_perf = 0.8
+        elif refresh_rate >= 120: refresh_perf = 0.7
+        elif refresh_rate >= 75: refresh_perf = 0.5
+        elif refresh_rate >= 60: refresh_perf = 0.3
+        else: refresh_perf = 0.1
 
-        performance_score += refresh_perf * 0.4  # 40% weight
-        weights_used += 0.4
+        performance_score += refresh_perf * 0.25
+        total_weight += 0.25
 
-        # Resolution performance
-        resolution = product_features.get("resolution", "").lower()
-        if "4k" in resolution: res_perf = 1.0
-        elif "1440p" in resolution: res_perf = 0.8
-        elif "1080p" in resolution: res_perf = 0.6
-        else: res_perf = 0.4
+        # Response time performance (15% weight - critical for gaming)
+        response_time_str = product_features.get("response_time", "0")
+        try:
+            response_time = int(float(response_time_str)) if response_time_str else 0
+        except (ValueError, TypeError):
+            response_time = 0
 
-        performance_score += res_perf * 0.3  # 30% weight
-        weights_used += 0.3
+        if response_time <= 1: response_perf = 1.0      # Excellent (1ms or less)
+        elif response_time <= 2: response_perf = 0.9    # Very good (2ms)
+        elif response_time <= 4: response_perf = 0.8    # Good (4ms)
+        elif response_time <= 5: response_perf = 0.6    # Acceptable (5ms)
+        elif response_time <= 8: response_perf = 0.4    # Poor (8ms)
+        else: response_perf = 0.2                       # Very poor (>8ms)
 
-        # Size appropriateness
-        size = product_features.get("size", 0)
-        if 24 <= size <= 40:  # Reasonable size range
-            size_perf = 1.0
-        elif 20 <= size <= 50:  # Acceptable range
-            size_perf = 0.8
+        if response_time > 0:  # Only add if response time is available
+            performance_score += response_perf * 0.15
+            total_weight += 0.15
+
+        # Resolution performance (15% weight)
+        resolution = safe_string_extract(product_features.get("resolution", "")).lower()
+        if "4k" in resolution or "uhd" in resolution: res_perf = 1.0
+        elif "1440p" in resolution or "qhd" in resolution: res_perf = 0.8
+        elif "1080p" in resolution or "fhd" in resolution: res_perf = 0.6
+        elif "720p" in resolution or "hd" in resolution: res_perf = 0.4
+        else: res_perf = 0.3
+
+        performance_score += res_perf * 0.15
+        total_weight += 0.15
+
+        # Panel type performance (10% weight)
+        panel = safe_string_extract(product_features.get("panel_type", "")).lower()
+        if "ips" in panel: panel_perf = 1.0
+        elif "oled" in panel or "amoled" in panel: panel_perf = 0.9
+        elif "va" in panel: panel_perf = 0.7
+        elif "tn" in panel: panel_perf = 0.5
+        else: panel_perf = 0.4
+
+        performance_score += panel_perf * 0.10
+        total_weight += 0.10
+
+        # Size appropriateness (8% weight)
+        size_str = product_features.get("size", "0")
+        try:
+            size = float(size_str) if size_str else 0
+        except (ValueError, TypeError):
+            size = 0
+
+        if 27 <= size <= 34: size_perf = 1.0  # Optimal gaming size
+        elif 24 <= size <= 40: size_perf = 0.9  # Very good range
+        elif 20 <= size <= 50: size_perf = 0.7  # Acceptable range
+        else: size_perf = 0.4  # Suboptimal size
+
+        performance_score += size_perf * 0.08
+        total_weight += 0.08
+
+        # HDR support bonus (5% weight)
+        hdr = safe_string_extract(product_features.get("hdr_support", "")).lower()
+        if "hdr10" in hdr or "dolby vision" in hdr: hdr_perf = 1.0
+        elif "hdr" in hdr: hdr_perf = 0.7
+        else: hdr_perf = 0.0
+
+        performance_score += hdr_perf * 0.05
+        total_weight += 0.05
+
+        # Color accuracy bonus (5% weight)
+        color_acc_str = product_features.get("color_accuracy", "0")
+        try:
+            color_acc = int(float(color_acc_str)) if color_acc_str else 0
+        except (ValueError, TypeError):
+            color_acc = 0
+
+        if color_acc >= 95: color_perf = 1.0
+        elif color_acc >= 90: color_perf = 0.8
+        elif color_acc >= 85: color_perf = 0.6
+        elif color_acc >= 72: color_perf = 0.4
+        else: color_perf = 0.2
+
+        if color_acc > 0:  # Only add if color accuracy is available
+            performance_score += color_perf * 0.05
+            total_weight += 0.05
+
+        # Brightness performance (4% weight)
+        brightness_str = product_features.get("brightness", "0")
+        try:
+            brightness = int(float(brightness_str)) if brightness_str else 0
+        except (ValueError, TypeError):
+            brightness = 0
+
+        if brightness >= 400: bright_perf = 1.0
+        elif brightness >= 350: bright_perf = 0.9
+        elif brightness >= 300: bright_perf = 0.8
+        elif brightness >= 250: bright_perf = 0.6
+        else: bright_perf = 0.4
+
+        if brightness > 0:  # Only add if brightness is available
+            performance_score += bright_perf * 0.04
+            total_weight += 0.04
+
+        # Connectivity bonus (3% weight)
+        connectivity = safe_string_extract(product_features.get("connectivity", "")).lower()
+        connect_perf = 0.0
+        if "hdmi2.1" in connectivity or "hdmi 2.1" in connectivity: connect_perf += 0.5
+        if "displayport1.4" in connectivity or "dp1.4" in connectivity: connect_perf += 0.3
+        if "usb-c" in connectivity or "type-c" in connectivity: connect_perf += 0.2
+
+        performance_score += min(1.0, connect_perf) * 0.03
+        total_weight += 0.03
+
+        # Calculate final performance score
+        if total_weight > 0:
+            final_performance = performance_score / total_weight
         else:
-            size_perf = 0.5
+            final_performance = 0.5  # Neutral score if no features available
 
-        performance_score += size_perf * 0.2  # 20% weight
-        weights_used += 0.2
+        # Ensure score is within bounds
+        final_performance = max(0.0, min(1.0, final_performance))
 
-        # Panel type bonus
-        panel = product_features.get("panel_type", "").lower()
-        if "ips" in panel: panel_perf = 0.1
-        elif "va" in panel: panel_perf = 0.05
-        else: panel_perf = 0.0
-
-        performance_score += panel_perf * 0.1  # 10% weight
-        weights_used += 0.1
-
-        final_performance = performance_score / weights_used if weights_used > 0 else 0.5
-        return min(1.0, final_performance)
+        log.debug(f"🎯 TECH_PERFORMANCE: {final_performance:.3f} (score={performance_score:.3f}, weight={total_weight:.3f})")
+        return final_performance
     
     def _calculate_feature_quality(self, feature_name: str, feature_value: Any) -> float:
         """Calculate quality score for a specific feature."""

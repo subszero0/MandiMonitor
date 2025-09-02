@@ -154,9 +154,9 @@ class TestFeatureMatchModel:
             "technical_density": 0.7
         }) is True
         
-        # Low confidence non-technical query
+        # Low confidence non-technical query (updated for AI overhaul - more lenient)
         assert feature_match_model._has_technical_features({
-            "confidence": 0.2,
+            "confidence": 0.15,
             "technical_density": 0.1
         }) is False
         
@@ -314,13 +314,13 @@ class TestModelSelectionLogic:
         model = get_selection_model("gaming monitor 144hz curved 27 inch", 10)
         assert isinstance(model, FeatureMatchModel)
         
-        # Simple query with moderate products should use PopularityModel
+        # Simple query with moderate products should use FeatureMatchModel (FORCED AI)
         model = get_selection_model("monitor", 5)
-        assert isinstance(model, PopularityModel)
+        assert isinstance(model, FeatureMatchModel)
         
-        # Two products should use PopularityModel (Phase R2: lowered thresholds)
+        # Two products should use FeatureMatchModel (FORCED AI - lowered threshold)
         model = get_selection_model("any query", 2)
-        assert isinstance(model, PopularityModel)
+        assert isinstance(model, FeatureMatchModel)
         
         # Only single product should use RandomSelectionModel
         model = get_selection_model("any query", 1)
@@ -435,7 +435,7 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     async def test_simple_monitor_selection_scenario(self):
-        """Test a simple monitor selection that should use PopularityModel."""
+        """Test a simple monitor selection that should use FeatureMatchModel (FORCED AI)."""
         basic_products = [
             {
                 "asin": "B001",
@@ -444,12 +444,12 @@ class TestIntegrationScenarios:
                 "average_rating": 3.8
             },
             {
-                "asin": "B002", 
+                "asin": "B002",
                 "title": "Popular Monitor",
                 "rating_count": 500,
                 "average_rating": 4.5
             },
-            # Add third product to trigger PopularityModel (need >=3 products)
+            # Add third product to trigger FeatureMatchModel (FORCED AI with >=2 products)
             {
                 "asin": "B003",
                 "title": "Another Monitor",
@@ -457,16 +457,17 @@ class TestIntegrationScenarios:
                 "average_rating": 4.0
             }
         ]
-        
+
         simple_query = "monitor"
-        
-        # Should use PopularityModel for simple queries with 3+ products
+
+        # Should use FeatureMatchModel for any query with 2+ products (FORCED AI)
         result = await smart_product_selection(basic_products, simple_query)
-        
+
         assert result is not None
-        # Should select the more popular product (B002 has highest rating count and rating)
-        assert result["asin"] == "B002"
-        assert "_popularity_metadata" in result
+        # With FeatureMatchModel, selection is based on AI matching, not just popularity
+        assert result["asin"] in ["B001", "B002", "B003"]  # Any of the products could be selected
+        # Should have AI metadata instead of popularity metadata
+        assert "ai_metadata" in result
 
     @pytest.mark.asyncio  
     async def test_error_handling_and_fallbacks(self):

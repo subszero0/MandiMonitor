@@ -675,8 +675,12 @@ class OfficialPaapiClient:
         min_price_rupees = (min_price / 100) if min_price else 0
         max_price_rupees = (max_price / 100) if max_price else 0
 
+        # Enhanced budget logic: consider both min and max prices
+        # If no min_price but high max_price, still apply premium enhancements
+        effective_budget_indicator = max(min_price_rupees, max_price_rupees * 0.8)  # Use 80% of max as budget indicator
+
         # Ultra-premium range (₹1 lakh+)
-        if min_price_rupees >= 100000:
+        if min_price_rupees >= 100000 or (not min_price and max_price_rupees >= 100000):
             enhanced_terms.extend([
                 "professional", "studio", "enterprise", "premium", "high-end",
                 "flagship", "top-tier", "ultimate"
@@ -684,7 +688,7 @@ class OfficialPaapiClient:
             enhancement_reasons.append("Ultra-premium budget (₹1L+): Added professional/studio terms")
 
         # Premium range (₹50k-99k)
-        elif min_price_rupees >= 50000:
+        elif min_price_rupees >= 50000 or (not min_price and max_price_rupees >= 50000):
             enhanced_terms.extend([
                 "professional", "premium", "high-performance", "advanced",
                 "business", "creator", "enthusiast"
@@ -692,7 +696,7 @@ class OfficialPaapiClient:
             enhancement_reasons.append("Premium budget (₹50k+): Added professional/advanced terms")
 
         # Mid-premium range (₹25k-49k)
-        elif min_price_rupees >= 25000:
+        elif min_price_rupees >= 25000 or (not min_price and max_price_rupees >= 25000):
             # Only add gaming if not already in the query
             gaming_terms = []
             if "gaming" not in original_keywords.lower():
@@ -716,10 +720,10 @@ class OfficialPaapiClient:
             # Add tech specifications for electronics
             if any(term in original_keywords.lower() for term in ["monitor", "display", "screen"]):
                 # Monitor-specific enhancements
-                if min_price_rupees >= 30000:
+                if min_price_rupees >= 30000 or (not min_price and max_price_rupees >= 30000):
                     enhanced_terms.extend(["4k", "uhd", "hdr", "ips", "144hz", "high-refresh"])
                     enhancement_reasons.append("Electronics monitor: Added premium display specs")
-                elif min_price_rupees >= 15000:
+                elif min_price_rupees >= 15000 or (not min_price and max_price_rupees >= 15000):
                     # Only add gaming if not already in the query
                     gaming_terms = []
                     if "gaming" not in original_keywords.lower():

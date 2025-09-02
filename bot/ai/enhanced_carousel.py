@@ -492,79 +492,129 @@ def build_comparison_summary_card(
 
 
 def _get_product_highlights(product: Dict, product_index: int, comparison_table: Dict) -> List[str]:
-    """Get detailed technical highlights for a product in comparison context."""
+    """Get detailed technical highlights for a product with enhanced differentiation."""
     highlights = []
-    
-    # Get key differences and highlight where this product stands out
-    key_diffs = comparison_table.get('key_differences', [])
-    
-    # Prioritize gaming-relevant features
-    gaming_priority = ['refresh_rate', 'resolution', 'size', 'panel_type', 'price']
-    
-    # Sort features by gaming relevance
-    sorted_diffs = sorted(key_diffs[:6], key=lambda x: 
-                         gaming_priority.index(x['feature'].lower().replace(' ', '_')) 
-                         if x['feature'].lower().replace(' ', '_') in gaming_priority else 999)
-    
-    for diff in sorted_diffs:
-        feature = diff['feature']
-        values = diff['values']
-        
-        if product_index < len(values):
-            value = values[product_index]
-            
-            if value and value != "Not specified":
-                # Add gaming context to highlights
-                best_index = diff.get('highlight_best', -1)
-                is_best = best_index == product_index
-                
-                if feature.lower() == "refresh rate":
-                    if is_best:
-                        highlights.append(f"• **{value}** - Best for smooth gaming ⭐")
-                    else:
-                        gaming_quality = "Excellent" if "180" in value or "240" in value else \
-                                       "Great" if "144" in value or "165" in value else \
-                                       "Good" if "120" in value else "Standard"
-                        highlights.append(f"• **{value}** - {gaming_quality} for gaming")
-                        
-                elif feature.lower() == "resolution":
-                    if is_best:
-                        highlights.append(f"• **{value}** - Best visual clarity ⭐")
-                    else:
-                        quality_desc = "Ultra-sharp" if "4K" in value else \
-                                     "Sharp" if "1440p" in value else "Clear"
-                        highlights.append(f"• **{value}** - {quality_desc} visuals")
-                        
-                elif feature.lower() == "size":
-                    if is_best:
-                        highlights.append(f"• **{value}** screen - Optimal size ⭐")
-                    else:
-                        size_desc = "Large" if "27" in value or "32" in value else \
-                                  "Compact" if "24" in value else "Standard"
-                        highlights.append(f"• **{value}** screen - {size_desc} gaming setup")
-                        
-                elif feature.lower() == "panel type":
-                    if is_best:
-                        highlights.append(f"• **{value}** panel - Premium display ⭐")
-                    else:
-                        panel_desc = "Premium colors" if "IPS" in value else \
-                                   "High contrast" if "VA" in value else \
-                                   "Fast response" if "TN" in value else "Quality"
-                        highlights.append(f"• **{value}** panel - {panel_desc}")
-                        
-                elif feature.lower() == "price":
-                    if is_best:
-                        highlights.append(f"• **{value}** - Best value ⭐")
-                    else:
-                        highlights.append(f"• **{value}** - Competitive pricing")
-                else:
-                    # Generic highlight for other features
-                    if is_best:
-                        highlights.append(f"• **{feature}**: {value} ⭐")
-                    else:
-                        highlights.append(f"• **{feature}**: {value}")
-    
-    return highlights[:4]  # Limit to top 4 highlights
+
+    # Extract detailed product features for enhanced messaging
+    product_features = product.get('features', {})
+
+    # Get comprehensive scoring breakdown if available
+    scoring_breakdown = product.get('scoring_breakdown', {})
+    technical_score = scoring_breakdown.get('technical_score', 0)
+    value_score = scoring_breakdown.get('value_score', 0)
+    budget_score = scoring_breakdown.get('budget_score', 0)
+
+    # Price analysis with tier positioning
+    price = product.get('price', 0)
+    if price and isinstance(price, (int, float)) and price > 0:
+        if price > 100000:  # Convert paise to rupees
+            price_rs = price // 100
+        else:
+            price_rs = int(price)
+
+        # Price positioning with context
+        if price_rs < 20000:
+            price_tier = "Budget-friendly"
+            highlights.append(f"• **₹{price_rs:,}** - {price_tier}, great for entry-level gaming")
+        elif price_rs < 35000:
+            price_tier = "Mid-range value"
+            highlights.append(f"• **₹{price_rs:,}** - {price_tier}, sweet spot for most gamers")
+        elif price_rs < 50000:
+            price_tier = "Premium"
+            highlights.append(f"• **₹{price_rs:,}** - {price_tier}, high-end gaming performance")
+        else:
+            price_tier = "High-end flagship"
+            highlights.append(f"• **₹{price_rs:,}** - {price_tier}, ultimate gaming experience")
+
+    # Enhanced refresh rate analysis with gaming context
+    refresh_rate = product_features.get('refresh_rate', 0)
+    if refresh_rate:
+        if refresh_rate >= 240:
+            highlights.append(f"• **{refresh_rate}Hz** ⚡ Ultra-smooth for competitive esports")
+        elif refresh_rate >= 165:
+            highlights.append(f"• **{refresh_rate}Hz** ⚡ Excellent for fast-paced FPS games")
+        elif refresh_rate >= 144:
+            highlights.append(f"• **{refresh_rate}Hz** ⚡ Great for most modern games")
+        else:
+            highlights.append(f"• **{refresh_rate}Hz** - Good for casual gaming & work")
+
+    # Enhanced response time analysis
+    response_time = product_features.get('response_time', 0)
+    if response_time:
+        if response_time <= 1:
+            highlights.append(f"• **{response_time}ms** 🏆 Virtually no motion blur in fast action")
+        elif response_time <= 4:
+            highlights.append(f"• **{response_time}ms** ✨ Very sharp motion, minimal ghosting")
+        else:
+            highlights.append(f"• **{response_time}ms** - Decent for general gaming use")
+
+    # Enhanced resolution analysis with use case context
+    resolution = product_features.get('resolution', '').upper()
+    if resolution:
+        if '4K' in resolution or 'UHD' in resolution:
+            highlights.append(f"• **{resolution}** 🎯 Ultra-high definition for professional content creation")
+        elif '1440P' in resolution or 'QHD' in resolution:
+            highlights.append(f"• **{resolution}** 🎯 Sharp, detailed graphics for gaming & media")
+        elif '1080P' in resolution or 'FHD' in resolution:
+            highlights.append(f"• **{resolution}** - Clear visuals, excellent performance on any GPU")
+
+    # Enhanced panel type analysis with specific benefits
+    panel_type = product_features.get('panel_type', '').upper()
+    if panel_type:
+        if 'IPS' in panel_type:
+            highlights.append(f"• **{panel_type} Panel** 🎨 Best color accuracy & wide viewing angles")
+        elif 'VA' in panel_type:
+            highlights.append(f"• **{panel_type} Panel** 🌙 Excellent contrast & deep blacks")
+        elif 'OLED' in panel_type or 'AMOLED' in panel_type:
+            highlights.append(f"• **{panel_type} Panel** 💫 Perfect blacks & vibrant HDR colors")
+        else:
+            highlights.append(f"• **{panel_type} Panel** - Reliable display technology")
+
+    # HDR support with specific benefits
+    hdr = product_features.get('hdr_support', '').upper()
+    if hdr and 'HDR' in hdr:
+        highlights.append(f"• **{hdr}** 🌈 Enhanced contrast, brighter highlights & vivid colors")
+
+    # Color accuracy for creative professionals
+    color_acc = product_features.get('color_accuracy', 0)
+    if color_acc and color_acc > 0:
+        if color_acc >= 95:
+            highlights.append(f"• **{color_acc}% sRGB** 🎨 Professional color accuracy for content creation")
+        elif color_acc >= 85:
+            highlights.append(f"• **{color_acc}% sRGB** - Good color reproduction for casual creators")
+
+    # Brightness with room context
+    brightness = product_features.get('brightness', 0)
+    if brightness and brightness > 0:
+        if brightness >= 400:
+            highlights.append(f"• **{brightness} nits** ☀️ Perfect for bright rooms & outdoor visibility")
+        elif brightness >= 300:
+            highlights.append(f"• **{brightness} nits** - Good brightness for most indoor environments")
+
+    # Value assessment based on comprehensive scoring
+    if value_score >= 0.8:
+        highlights.append("• **💰 Excellent Value** - Outstanding performance per rupee spent")
+    elif value_score >= 0.6:
+        highlights.append("• **👍 Good Value** - Solid performance relative to price")
+    elif value_score <= 0.4:
+        highlights.append("• **⚠️ Premium Investment** - Consider if advanced features are needed")
+
+    # Technical excellence indicators
+    excellence_indicators = []
+    if refresh_rate and refresh_rate >= 144:
+        excellence_indicators.append("high refresh rate")
+    if response_time and response_time <= 4:
+        excellence_indicators.append("fast response time")
+    if 'IPS' in panel_type or 'OLED' in panel_type:
+        excellence_indicators.append("premium panel")
+    if color_acc and color_acc >= 90:
+        excellence_indicators.append("professional color accuracy")
+
+    if len(excellence_indicators) >= 2:
+        highlights.append(f"• **🏆 Technical Excellence** - {', '.join(excellence_indicators[:2])} & more")
+
+    # Limit to top 5 highlights for optimal readability
+    return highlights[:5]
 
 
 def build_ai_selection_message(

@@ -60,9 +60,18 @@ class MultiCardSelector:
         log.info(f"   📝 User features: {user_features}")
         log.info(f"   🔢 Max cards: {max_cards}")
 
-        if len(scored_products) < 2:
-            log.warning(f"❌ MULTI_CARD_SELECTOR: Only {len(scored_products)} scored products, need at least 2")
-            return {"selection_type": "single", "products": []}
+        if len(scored_products) == 0:
+            log.warning(f"❌ MULTI_CARD_SELECTOR: No scored products available")
+            return {
+                "products": [],
+                "presentation_mode": "none",
+                "selection_reason": "No products available for comparison",
+                "ai_metadata": {"selection_type": "empty"}
+            }
+        elif len(scored_products) == 1:
+            # Handle single product case
+            product, score_data = scored_products[0]
+            return self._single_card_selection(scored_products[0], "Only one viable product available")
 
         # Log top product details
         if scored_products:
