@@ -121,10 +121,22 @@ if env in ['development', 'test']:
         # Create a settings-like object from DevConfig for compatibility
         class DevSettings:
             def __init__(self, dev_config):
-                # Copy all attributes from dev_config
+                # First, get all default values from the original Settings class
+                defaults = Settings()
+                for attr in dir(defaults):
+                    if not attr.startswith('_') and not callable(getattr(defaults, attr)):
+                        setattr(self, attr, getattr(defaults, attr))
+
+                # Then override with values from DevConfig
                 for attr in dir(dev_config):
-                    if not attr.startswith('_'):
-                        setattr(self, attr, getattr(dev_config, attr))
+                    if not attr.startswith('_') and hasattr(dev_config, attr):
+                        value = getattr(dev_config, attr)
+                        if value is not None:  # Only override if DevConfig has a value
+                            # Map lowercase DevConfig attributes to uppercase Settings attributes
+                            uppercase_attr = attr.upper()
+                            setattr(self, uppercase_attr, value)
+                            # Also keep the lowercase version for compatibility
+                            setattr(self, attr, value)
 
         settings = DevSettings(dev_config)
     except Exception as e:

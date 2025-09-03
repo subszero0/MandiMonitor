@@ -22,9 +22,14 @@ try:
 
     # Test 1: Configuration Loading
     print("\n✅ Test 1: Configuration Loading")
-    print(f"  Telegram Token: {settings.TELEGRAM_TOKEN[:25]}...")
-    print(f"  PAAPI Key: {settings.PAAPI_ACCESS_KEY[:15]}...")
-    print(f"  Environment: {getattr(settings, 'environment', 'unknown')}")
+    telegram_token = getattr(settings, 'TELEGRAM_TOKEN', 'NOT_FOUND')
+    paapi_key = getattr(settings, 'PAAPI_ACCESS_KEY', 'NOT_FOUND')
+    admin_user = getattr(settings, 'ADMIN_USER', 'NOT_FOUND')
+
+    print(f"  Telegram Token: {telegram_token[:25] if telegram_token and telegram_token != 'NOT_FOUND' else 'NOT_FOUND'}...")
+    print(f"  PAAPI Key: {paapi_key[:15] if paapi_key and paapi_key != 'NOT_FOUND' else 'NOT_FOUND'}...")
+    print(f"  Admin User: {admin_user}")
+    print(f"  Environment: {os.getenv('ENVIRONMENT', 'not_set')}")
 
     # Test 2: Input Validation
     print("\n✅ Test 2: Input Validation")

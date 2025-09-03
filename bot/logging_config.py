@@ -18,14 +18,18 @@ def setup_dev_logging():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_dir / 'dev.log'),
-            logging.FileHandler(log_dir / 'security.log', level=logging.WARNING)
+            logging.FileHandler(log_dir / 'dev.log')
         ]
     )
 
     # Security-specific logger
     security_logger = logging.getLogger('security')
     security_logger.setLevel(logging.WARNING)
+
+    # Add security-specific file handler
+    security_handler = logging.FileHandler(log_dir / 'security.log')
+    security_handler.setLevel(logging.WARNING)
+    security_logger.addHandler(security_handler)
 
     return logging.getLogger(__name__)
 
