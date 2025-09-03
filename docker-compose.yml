@@ -1,12 +1,17 @@
 services:
   bot:
-    build: .
-    env_file: .env
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    env_file: .env.dev
+    environment:
+      - ENVIRONMENT=development
     restart: always
     ports:
       - "8000:8000"
     volumes:
       - ./dealbot.db:/app/dealbot.db
+    user: "1000:1000"
   
   cloudflared:
     image: cloudflare/cloudflared:latest

@@ -1,0 +1,55 @@
+name: Dev Security Checks
+
+on: [push, pull_request]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install security tools
+        run: |
+          pip install bandit safety
+
+      - name: Run Bandit (basic security scan)
+        run: |
+          bandit -r bot/ -f txt -o bandit-report.txt || true
+
+      - name: Upload Bandit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.txt
+
+      - name: Check for secrets (development level)
+        run: |
+          echo "Checking for potential secrets..."
+          # Look for common secret patterns but exclude placeholders and examples
+          if grep -r "password\|token\|key\|secret" --exclude-dir=.git --exclude-dir=.venv --exclude-dir=__pycache__ . | grep -v "placeholder\|example\|dummy\|test\|dev_" | grep -v "_test" | grep -v "test_"; then
+            echo "::warning::Potential secrets found - review manually"
+            exit 0  # Don't fail the build, just warn
+          else
+            echo "✅ No obvious secrets detected"
+          fi
+
+      - name: Security scan summary
+        run: |
+          echo "## 🔒 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f bandit-report.txt ]; then
+            echo "### Bandit Security Scan:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            head -20 bandit-report.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Secret Detection: ✅ Completed" >> $GITHUB_STEP_SUMMARY
+          echo "### Recommendation: Review Bandit findings and address high-severity issues" >> $GITHUB_STEP_SUMMARY
