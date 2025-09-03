@@ -13,8 +13,8 @@ class DevInputValidator:
         if not query or len(query) > 200:
             return None
 
-        # Basic sanitization for dev
-        clean_query = re.sub(r'[<>"\';]', '', query)
+        # Basic sanitization for dev - remove dangerous characters
+        clean_query = re.sub(r'[<>"\';()/\[\]]', '', query)
         return clean_query.strip()
 
     @staticmethod
