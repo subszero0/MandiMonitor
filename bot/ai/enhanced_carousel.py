@@ -7,6 +7,9 @@ selection with comparison features, AI insights, and intelligent product highlig
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from typing import Dict, List, Any, Optional
+from logging import getLogger
+
+log = getLogger(__name__)
 
 
 def build_product_carousel(
@@ -32,22 +35,49 @@ def build_product_carousel(
     cards = []
     
     for i, product in enumerate(products):
+        # CRITICAL DEBUG: Check product structure
+        log.info(f"DEBUG: build_product_carousel processing product {i}: type={type(product)}")
+        if not isinstance(product, dict):
+            log.error(f"CRITICAL: product {i} is not a dict: {type(product)}, content: {product}")
+            continue
+            
         # Build enhanced card with differentiation highlights
-        caption, keyboard = build_enhanced_card(
-            product=product,
-            position=i + 1,
-            total_cards=len(products),
-            comparison_table=comparison_table,
-            watch_id=watch_id
-        )
+        try:
+            caption, keyboard = build_enhanced_card(
+                product=product,
+                position=i + 1,
+                total_cards=len(products),
+                comparison_table=comparison_table,
+                watch_id=watch_id
+            )
+            
+            # CRITICAL DEBUG: Check what build_enhanced_card returned
+            log.info(f"DEBUG: build_enhanced_card returned caption type: {type(caption)}, keyboard type: {type(keyboard)}")
+        except Exception as e:
+            log.error(f"CRITICAL: build_enhanced_card failed for product {i}: {e}")
+            log.error(f"CRITICAL: product keys: {list(product.keys()) if isinstance(product, dict) else 'Not a dict'}")
+            log.error(f"CRITICAL: comparison_table type: {type(comparison_table)}")
+            # Provide fallback caption and keyboard
+            caption = f"❌ Error loading product {i+1} details"
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    text=f"🛒 CREATE WATCH ({i+1})", 
+                    callback_data=f"click:{watch_id}:{product.get('asin', 'unknown')}"
+                )]
+            ])
+            log.info(f"DEBUG: Using fallback caption and keyboard for product {i}")
         
-        cards.append({
+        card = {
             'caption': caption,
             'keyboard': keyboard,
             'image': product.get('image_url', product.get('image', '')),
             'asin': product.get('asin', ''),
             'type': 'product_card'
-        })
+        }
+        
+        # CRITICAL DEBUG: Validate card structure before appending
+        log.info(f"DEBUG: Created card {i} with type: {type(card)}, keys: {list(card.keys())}")
+        cards.append(card)
     
     # Add comparison summary as final card if multiple products
     if len(products) > 1:
@@ -56,7 +86,21 @@ def build_product_carousel(
             selection_reason=selection_reason,
             product_count=len(products)
         )
-        cards.append(summary_card)
+        
+        # CRITICAL DEBUG: Validate summary card structure
+        log.info(f"DEBUG: summary_card type: {type(summary_card)}")
+        if isinstance(summary_card, dict):
+            log.info(f"DEBUG: summary_card keys: {list(summary_card.keys())}")
+            cards.append(summary_card)
+        else:
+            log.error(f"CRITICAL: summary_card is not a dict: {type(summary_card)}, content: {summary_card}")
+    
+    # FINAL DEBUG: Validate entire cards list before returning
+    log.info(f"DEBUG: build_product_carousel returning {len(cards)} cards")
+    for i, card in enumerate(cards):
+        log.info(f"DEBUG: Card {i} type: {type(card)}")
+        if not isinstance(card, dict):
+            log.error(f"CRITICAL: Card {i} is not a dict: {type(card)}")
     
     return cards
 
@@ -83,6 +127,22 @@ def build_enhanced_card(
     -------
         Tuple of (caption_text, keyboard_markup)
     """
+    # CRITICAL FIX: Validate input parameters
+    if not isinstance(product, dict):
+        log.error(f"CRITICAL: product is not a dict in build_enhanced_card: {type(product)}")
+        return f"❌ Error: Invalid product data (type: {type(product)})", InlineKeyboardMarkup([])
+    
+    if not isinstance(comparison_table, dict):
+        log.error(f"CRITICAL: comparison_table is not a dict in build_enhanced_card: {type(comparison_table)}")
+        # Create a safe fallback comparison table
+        comparison_table = {
+            'headers': ['Feature', 'Product'],
+            'key_differences': [],
+            'strengths': {},
+            'trade_offs': [],
+            'summary': "Comparison data unavailable due to validation failure"
+        }
+    
     # Basic product info
     title = product.get('title', 'Unknown Product')
     price = product.get('price', 0)
@@ -108,9 +168,17 @@ def build_enhanced_card(
     caption += f"📱 {title}\n💰 {price_text}\n\n"
     
     # Add AI insights and strengths
-    strengths = comparison_table.get('strengths', {}).get(position - 1, [])
-    if strengths:
-        caption += "✨ **Best for**: " + ", ".join(strengths[:2]) + "\n\n"
+    # CRITICAL FIX: Safe access to strengths with validation
+    try:
+        strengths_dict = comparison_table.get('strengths', {})
+        if isinstance(strengths_dict, dict):
+            strengths = strengths_dict.get(position - 1, [])
+            if strengths and isinstance(strengths, list):
+                caption += "✨ **Best for**: " + ", ".join(strengths[:2]) + "\n\n"
+        else:
+            log.warning(f"comparison_table['strengths'] is not a dict: {type(strengths_dict)}")
+    except Exception as e:
+        log.error(f"Error accessing strengths from comparison_table: {e}")
     
     # Add detailed specs for multi-card
     if total_cards > 1:
@@ -118,25 +186,36 @@ def build_enhanced_card(
         if highlights:
             caption += "🔍 **Key Specs**:\n" + "\n".join(highlights) + "\n\n"
         
-        # Add quick specs summary from comparison data
-        key_diffs = comparison_table.get('key_differences', [])
-        quick_specs = []
-        for diff in key_diffs[:4]:  # Top 4 most important specs
-            if position - 1 < len(diff['values']):
-                feature = diff['feature']
-                value = diff['values'][position - 1]
-                if value and value != "Not specified":
-                    if feature == "Refresh Rate":
-                        quick_specs.append(f"⚡ {value}")
-                    elif feature == "Size":
-                        quick_specs.append(f"📐 {value}")
-                    elif feature == "Resolution":
-                        quick_specs.append(f"🖥️ {value}")
-                    elif feature == "Panel Type":
-                        quick_specs.append(f"🎨 {value}")
-        
-        if quick_specs:
-            caption += "📋 " + " • ".join(quick_specs) + "\n\n"
+        # CRITICAL FIX: Safe access to key_differences with validation
+        try:
+            key_diffs = comparison_table.get('key_differences', [])
+            quick_specs = []
+            if isinstance(key_diffs, list):
+                for diff in key_diffs[:4]:  # Top 4 most important specs
+                    if isinstance(diff, dict) and 'feature' in diff and 'values' in diff:
+                        if isinstance(diff['values'], list) and position - 1 < len(diff['values']):
+                            feature = diff['feature']
+                            value = diff['values'][position - 1]
+                            if value and value != "Not specified":
+                                if feature == "Refresh Rate":
+                                    quick_specs.append(f"⚡ {value}")
+                                elif feature == "Size":
+                                    quick_specs.append(f"📐 {value}")
+                                elif feature == "Resolution":
+                                    quick_specs.append(f"🖥️ {value}")
+                                elif feature == "Panel Type":
+                                    quick_specs.append(f"🎨 {value}")
+                        else:
+                            log.warning(f"Invalid values in key_differences diff: {diff}")
+                    else:
+                        log.warning(f"Invalid diff structure in key_differences: {diff}")
+            else:
+                log.warning(f"comparison_table['key_differences'] is not a list: {type(key_diffs)}")
+            
+            if quick_specs:
+                caption += "📋 " + " • ".join(quick_specs) + "\n\n"
+        except Exception as e:
+            log.error(f"Error accessing key_differences from comparison_table: {e}")
     
     # Call-to-action
     if total_cards > 1:
@@ -180,9 +259,14 @@ def build_comparison_summary_card(
     # Add selection reason
     caption += f"📋 **Why these {product_count} options?**\n{selection_reason}\n\n"
     
-    # Build optimized specs comparison table - R4.3: Priority features first
-    key_diffs = comparison_table.get('key_differences', [])
-    priority_features = comparison_table.get('priority_features', [])
+    # CRITICAL FIX: Safe access to comparison table data
+    try:
+        key_diffs = comparison_table.get('key_differences', []) if isinstance(comparison_table, dict) else []
+        priority_features = comparison_table.get('priority_features', []) if isinstance(comparison_table, dict) else []
+    except Exception as e:
+        log.error(f"Error accessing comparison_table in summary card: {e}")
+        key_diffs = []
+        priority_features = []
     
     if key_diffs:
         caption += "📊 **Key Specifications**:\n\n"
@@ -286,13 +370,17 @@ def build_comparison_summary_card(
     
     caption += "\n"
     
-    # Add trade-offs analysis
-    trade_offs = comparison_table.get('trade_offs', [])
-    if trade_offs:
-        caption += "⚖️ **Trade-offs to Consider**:\n"
-        for i, trade_off in enumerate(trade_offs[:3], 1):
-            caption += f"{i}. {trade_off}\n"
-        caption += "\n"
+    # CRITICAL FIX: Safe access to trade_offs
+    try:
+        trade_offs = comparison_table.get('trade_offs', []) if isinstance(comparison_table, dict) else []
+        if trade_offs and isinstance(trade_offs, list):
+            caption += "⚖️ **Trade-offs to Consider**:\n"
+            for i, trade_off in enumerate(trade_offs[:3], 1):
+                if isinstance(trade_off, str):
+                    caption += f"{i}. {trade_off}\n"
+            caption += "\n"
+    except Exception as e:
+        log.error(f"Error accessing trade_offs from comparison_table: {e}")
     
     # Product-specific recommendations
     caption += "💡 **Specific Recommendations**:\n\n"
@@ -495,8 +583,18 @@ def _get_product_highlights(product: Dict, product_index: int, comparison_table:
     """Get detailed technical highlights for a product with enhanced differentiation."""
     highlights = []
 
-    # Extract detailed product features for enhanced messaging
-    product_features = product.get('features', {})
+    # CRITICAL FIX: Handle features as list or dict
+    raw_features = product.get('features', {})
+    if isinstance(raw_features, list):
+        # Features is a list of strings, create empty dict for technical features
+        product_features = {}
+        log.debug(f"_get_product_highlights: features is a list ({len(raw_features)} items), using empty dict for technical features")
+    elif isinstance(raw_features, dict):
+        product_features = raw_features
+        log.debug(f"_get_product_highlights: features is a dict with {len(raw_features)} keys")
+    else:
+        product_features = {}
+        log.warning(f"_get_product_highlights: features is unexpected type {type(raw_features)}, using empty dict")
 
     # Get comprehensive scoring breakdown if available
     scoring_breakdown = product.get('scoring_breakdown', {})
@@ -671,13 +769,27 @@ def format_comparison_table_text(comparison_table: Dict) -> str:
     -------
         Formatted comparison text
     """
-    if not comparison_table or not comparison_table.get('key_differences'):
+    # CRITICAL FIX: Safe validation of comparison_table
+    if not isinstance(comparison_table, dict):
+        return f"❌ Invalid comparison data (type: {type(comparison_table)})"
+    
+    if not comparison_table.get('key_differences'):
         return "No comparison data available"
     
     text = "📊 **Feature Comparison**\n\n"
     
-    key_diffs = comparison_table['key_differences']
-    headers = comparison_table.get('headers', ['Feature', 'Option 1', 'Option 2', 'Option 3'])
+    try:
+        key_diffs = comparison_table.get('key_differences', [])
+        headers = comparison_table.get('headers', ['Feature', 'Option 1', 'Option 2', 'Option 3'])
+        
+        if not isinstance(key_diffs, list):
+            return f"❌ Invalid key_differences data (type: {type(key_diffs)})"
+            
+        if not isinstance(headers, list):
+            headers = ['Feature', 'Option 1', 'Option 2', 'Option 3']
+    except Exception as e:
+        log.error(f"Error accessing comparison_table data: {e}")
+        return "❌ Error processing comparison data"
     
     for diff in key_diffs[:5]:  # Show top 5 features
         feature = diff['feature']
