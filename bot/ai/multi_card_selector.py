@@ -12,6 +12,7 @@ Key features:
 """
 
 import time
+import traceback
 from typing import Dict, List, Tuple, Any, Optional
 from logging import getLogger
 
@@ -29,14 +30,15 @@ class MultiCardSelector:
         self.score_gap_threshold = 0.15  # Show multi-card if top scores are within 15%
         self.high_confidence_threshold = 0.9  # Single card if AI confidence >90%
         self.min_products_for_multi = 2  # Minimum products needed for multi-card
-        self.max_cards = 3  # Maximum cards to show
+        self.max_cards = 5  # Maximum cards to show (FORCED TO 5)
 
     async def select_products_for_comparison(
         self,
         scored_products: List[Tuple[Dict, Dict]],
         user_features: Dict[str, Any],
-        max_cards: int = 3
+        max_cards: int = 5  # CHANGED: Default to 5 cards instead of 3
     ) -> Dict[str, Any]:
+        log.info(f"MULTI_CARD_SELECTOR: Called with {len(scored_products)} products, max_cards={max_cards}")
         """
         Select optimal number of products for user choice.
 
@@ -69,9 +71,15 @@ class MultiCardSelector:
                 "ai_metadata": {"selection_type": "empty"}
             }
         elif len(scored_products) == 1:
-            # Handle single product case
-            product, score_data = scored_products[0]
-            return self._single_card_selection(scored_products[0], "Only one viable product available")
+            # Handle single product case - ONLY for direct URL inputs
+            if self._is_direct_url_input(user_features):
+                product, score_data = scored_products[0]
+                return self._single_card_selection(scored_products[0], "Direct Amazon URL input - showing single product")
+            else:
+                # For search queries, still show single card but log that we'd prefer multi-card
+                log.info("⚠️ MULTI_CARD_SELECTOR: Only 1 product available - showing single card (would prefer 5)")
+                product, score_data = scored_products[0]
+                return self._single_card_selection(scored_products[0], "Only one product available for comparison")
 
         # Log top product details
         if scored_products:
@@ -79,57 +87,56 @@ class MultiCardSelector:
             log.info(f"   🥇 Top product: {top_product.get('asin', 'N/A')} - Score: {top_score.get('score', 'N/A')}")
             log.info(f"   📊 Top features: {top_score.get('matched_features', [])}")
 
-        # Continue with existing logic...
+        # MODIFIED: Always show top 5 products by default for search queries
         start_time = time.time()
-        
+
         if not scored_products:
             return self._empty_selection("No products to select from")
-        
-        # Single product fallback
-        if len(scored_products) < self.min_products_for_multi:
-            processing_time = (time.time() - start_time) * 1000
-            result = self._single_card_selection(scored_products[0], "Only one viable product found")
-            result['ai_metadata']['processing_time_ms'] = processing_time
-            return result
-        
-        # High confidence single card
-        top_score_data = scored_products[0][1]
-        if top_score_data["confidence"] > self.high_confidence_threshold:
-            processing_time = (time.time() - start_time) * 1000
-            result = self._single_card_selection(
-                scored_products[0], 
-                f"High AI confidence ({top_score_data['confidence']:.1%}) - clear best choice"
-            )
-            result['ai_metadata']['processing_time_ms'] = processing_time
-            return result
-        
-        # Check if multiple cards provide value
-        if not self._should_show_multiple_cards(scored_products):
-            processing_time = (time.time() - start_time) * 1000
-            result = self._single_card_selection(
-                scored_products[0], 
-                "Clear winner identified by AI scoring"
-            )
-            result['ai_metadata']['processing_time_ms'] = processing_time
-            return result
-        
-        # Select diverse products for comparison
-        selected_products = self._select_diverse_products(scored_products, user_features, max_cards)
+
+        # FORCED MULTI-CARD: Always show top 5 products for search queries
+        if not self._is_direct_url_input(user_features):
+            log.info("🎯 FORCED MULTI-CARD: Always showing top 5 products for search query")
+            # Simply take top 5 products (or all if less than 5)
+            selected_count = min(5, len(scored_products))
+            selected_products = scored_products[:selected_count]
+
+            log.info(f"✅ FORCED MULTI-CARD: Selected {len(selected_products)} top products: {[p[0].get('asin', 'unknown') for p in selected_products]}")
+
+        else:
+            # For direct URL inputs, keep single card behavior
+            log.info("🔗 DIRECT URL INPUT: Showing single product for Amazon URL")
+            selected_products = [scored_products[0]]
         comparison_table = await self._generate_comparison_table(selected_products, user_features)
         selection_reason = self._explain_selection(selected_products, user_features)
         
         processing_time = (time.time() - start_time) * 1000
         
+        # Determine correct selection type based on actual product count
+        actual_product_count = len(selected_products)
+        if actual_product_count == 1:
+            selection_type = 'single_card'
+        else:
+            selection_type = 'multi_card'
+
+        products_list = [product for product, _ in selected_products]
+
+        # DEBUG: Check what we're returning
+        log.info(f"DEBUG: MultiCardSelector returning {len(products_list)} products")
+        log.info(f"DEBUG: First product type: {type(products_list[0]) if products_list else 'None'}")
+        if products_list:
+            log.info(f"DEBUG: First product keys: {list(products_list[0].keys()) if isinstance(products_list[0], dict) else 'Not a dict'}")
+            log.info(f"DEBUG: First product asin: {products_list[0].get('asin', 'No asin') if isinstance(products_list[0], dict) else 'Not a dict'}")
+
         result = {
-            'products': [product for product, _ in selected_products],
+            'products': products_list,
             'comparison_table': comparison_table,
             'selection_reason': selection_reason,
-            'presentation_mode': self._get_presentation_mode(len(selected_products)),
+            'presentation_mode': self._get_presentation_mode(actual_product_count),
             'ai_metadata': {
-                'selection_type': 'multi_card',
-                'card_count': len(selected_products),
+                'selection_type': selection_type,
+                'card_count': actual_product_count,
                 'processing_time_ms': processing_time,
-                'selection_criteria': 'diversity_and_competition',
+                'selection_criteria': 'diversity_and_competition' if actual_product_count > 1 else 'single_best_match',
                 'top_scores': [score_data["score"] for _, score_data in selected_products[:3]]
             }
         }
@@ -138,6 +145,35 @@ class MultiCardSelector:
                 len(selected_products), result['presentation_mode'], processing_time)
         
         return result
+
+    def _is_direct_url_input(self, user_features: Dict[str, Any]) -> bool:
+        """
+        Check if the input is a direct Amazon URL (should show single card).
+
+        Args:
+        ----
+            user_features: User requirements from query
+
+        Returns:
+        -------
+            True if input is direct Amazon URL
+        """
+        original_query = user_features.get('original_query', '').lower()
+        keywords = user_features.get('keywords', '').lower()
+
+        # Check for Amazon URL patterns
+        url_patterns = [
+            'amazon.in/dp/',
+            'amazon.com/dp/',
+            'amzn.to/',
+            'amazon.in/gp/product/',
+            'amazon.com/gp/product/',
+            'www.amazon.in/',
+            'www.amazon.com/'
+        ]
+
+        combined_text = f"{original_query} {keywords}"
+        return any(pattern in combined_text for pattern in url_patterns)
 
     def _should_show_multiple_cards(self, scored_products: List[Tuple[Dict, Dict]]) -> bool:
         """
@@ -211,9 +247,14 @@ class MultiCardSelector:
         
         prices = []
         for product, _ in scored_products:
-            price = product.get("price")
-            # Ensure price is not None and is a valid number
-            if price is not None and isinstance(price, (int, float)) and price > 0:
+            price_raw = product.get("price")
+            # Safely convert price to numeric
+            try:
+                price = float(price_raw) if price_raw else 0
+            except (ValueError, TypeError):
+                price = 0
+
+            if price > 0:
                 prices.append(price)
         
         if len(prices) < 2:
@@ -249,67 +290,110 @@ class MultiCardSelector:
         -------
             Selected products for comparison
         """
+        log.info(f"DIVERSITY: Total products={len(scored_products)}, max_cards={max_cards}")
+
         if len(scored_products) <= max_cards:
+            log.info(f"DIVERSITY: Returning all products (condition met: {len(scored_products)} <= {max_cards})")
+            log.info(f"DIVERSITY: Returning {len(scored_products)} products: {[p[0].get('asin', 'unknown') for p in scored_products]}")
             return scored_products
-        
+
+        log.info("DIVERSITY: Starting diversity selection")
         selected = [scored_products[0]]  # Always include top choice
-        
-        for candidate_product, candidate_score in scored_products[1:]:
+        log.debug(f"DIVERSITY: Started with {len(selected)} products (top choice)")
+
+        for i, (candidate_product, candidate_score) in enumerate(scored_products[1:], 1):
             if len(selected) >= max_cards:
+                log.debug(f"DIVERSITY: Reached max_cards limit ({max_cards}), stopping")
                 break
-            
+
             # Check if this candidate adds meaningful diversity
             if self._adds_meaningful_diversity(candidate_product, candidate_score, selected, user_features):
                 selected.append((candidate_product, candidate_score))
-        
+                log.debug(f"DIVERSITY: Added product {i} (ASIN: {candidate_product.get('asin', 'unknown')}), now have {len(selected)} products")
+            else:
+                log.debug(f"DIVERSITY: Skipped product {i} (ASIN: {candidate_product.get('asin', 'unknown')}) - no diversity added")
+
+        log.debug(f"DIVERSITY: Final selection: {len(selected)} products from {len(scored_products)} available")
         return selected
 
     def _adds_meaningful_diversity(
-        self, 
-        candidate: Dict, 
+        self,
+        candidate: Dict,
         candidate_score: Dict,
-        selected: List[Tuple[Dict, Dict]], 
+        selected: List[Tuple[Dict, Dict]],
         user_features: Dict
     ) -> bool:
         """Check if candidate product adds meaningful diversity to selection."""
-        
+
         # Always add if we have less than 2 products
         if len(selected) < 2:
+            log.debug(f"DIVERSITY: Adding second product (selected={len(selected)})")
             return True
         
-        candidate_price = candidate.get("price", 0)
+        # Safely extract and convert candidate price
+        candidate_price_raw = candidate.get("price", 0)
+        try:
+            candidate_price = float(candidate_price_raw) if candidate_price_raw else 0
+        except (ValueError, TypeError):
+            candidate_price = 0
+
         candidate_brand = (candidate.get("brand") or "").lower()
         candidate_features = set(candidate_score.get("matched_features", []))
 
         # Check diversity across selected products
         for selected_product, selected_score in selected:
-            selected_price = selected_product.get("price", 0)
+            # Safely extract and convert selected price
+            selected_price_raw = selected_product.get("price", 0)
+            try:
+                selected_price = float(selected_price_raw) if selected_price_raw else 0
+            except (ValueError, TypeError):
+                selected_price = 0
+
             selected_brand = (selected_product.get("brand") or "").lower()
             selected_features = set(selected_score.get("matched_features", []))
-            
+
             # Price diversity (convert to rupees for comparison)
-            # Ensure both prices are valid numbers, not None
-            if (candidate_price is not None and isinstance(candidate_price, (int, float)) and candidate_price > 0 and
-                selected_price is not None and isinstance(selected_price, (int, float)) and selected_price > 0):
-                
+            if candidate_price > 0 and selected_price > 0:
+
                 candidate_price_rs = candidate_price/100 if candidate_price > 10000 else candidate_price
                 selected_price_rs = selected_price/100 if selected_price > 10000 else selected_price
-                
+
                 price_diff = abs(candidate_price_rs - selected_price_rs) / min(candidate_price_rs, selected_price_rs)
+                log.debug(f"DIVERSITY: Price check - candidate: ₹{candidate_price_rs:.0f}, selected: ₹{selected_price_rs:.0f}, diff: {price_diff:.2f}")
                 if price_diff > 0.20:  # >20% price difference
+                    log.debug("DIVERSITY: Adding due to price diversity")
                     return True
-            
+
             # Brand diversity
+            log.debug(f"DIVERSITY: Brand check - candidate: '{candidate_brand}', selected: '{selected_brand}'")
             if candidate_brand and selected_brand and candidate_brand != selected_brand:
+                log.debug("DIVERSITY: Adding due to brand diversity")
                 return True
-            
+
             # Feature diversity (different strengths)
+            log.debug(f"DIVERSITY: Feature check - candidate: {candidate_features}, selected: {selected_features}")
             if candidate_features and selected_features:
                 unique_features = candidate_features - selected_features
+                log.debug(f"DIVERSITY: Unique features: {unique_features}")
                 if len(unique_features) > 0:
+                    log.debug("DIVERSITY: Adding due to feature diversity")
                     return True
-        
+
+        log.debug("DIVERSITY: No diversity criteria met, rejecting candidate")
         return False
+
+    def _get_fallback_comparison_table(self) -> Dict[str, Any]:
+        """Generate a safe fallback comparison table structure."""
+        return {
+            'headers': ['Feature', 'Product'],
+            'key_differences': [],
+            'strengths': {},
+            'trade_offs': [],
+            'summary': "Comparison data unavailable",
+            'priority_features': [],
+            'user_focused_insights': [],
+            'error': 'Fallback comparison table due to data structure issues'
+        }
 
     async def _generate_comparison_table(
         self, 
@@ -329,58 +413,103 @@ class MultiCardSelector:
         -------
             Optimized comparison table with prioritized features and better insights
         """
-        if not selected_products:
-            return {"error": "No products to compare"}
-        
-        comparison = {
-            'headers': ['Feature'] + [f'Option {i+1}' for i in range(len(selected_products))],
-            'key_differences': [],
-            'strengths': {},  # Which product excels in what
-            'trade_offs': [],  # What user gains/loses with each choice
-            'summary': "",
-            'priority_features': [],  # R4.2: Most important features first
-            'user_focused_insights': []  # R4.2: Insights based on user query
-        }
-        
-        # R4.2: Smart feature prioritization based on user intent
-        comparison_features = self._prioritize_features_for_user(user_features)
-        comparison['priority_features'] = comparison_features[:5]  # Top 5 features
-        
-        for feature in comparison_features:
-            values = []
-            user_preference = user_features.get(feature, "Not specified")
+        try:
+            # CRITICAL FIX: Validate input data structure
+            if not isinstance(selected_products, list):
+                log.error(f"CRITICAL: selected_products is not a list: {type(selected_products)}")
+                return self._get_fallback_comparison_table()
             
-            # Get feature values for each product
-            for i, (product, score_data) in enumerate(selected_products):
-                value = self._get_product_feature_value(product, feature, score_data)
-                values.append(value)
+            if not selected_products:
+                log.warning("CRITICAL: selected_products is empty")
+                return self._get_fallback_comparison_table()
             
-            # Only show if products differ or user specified this feature
-            if len(set(values)) > 1 or feature in user_features:
-                comparison['key_differences'].append({
-                    'feature': feature.replace('_', ' ').title(),
-                    'values': values,
-                    'user_preference': user_preference,
-                    'highlight_best': self._identify_best_value(feature, values, user_preference)
-                })
+            # Validate each item in selected_products
+            for i, item in enumerate(selected_products):
+                if not isinstance(item, tuple) or len(item) != 2:
+                    log.error(f"CRITICAL: selected_products[{i}] is not a tuple of length 2: {type(item)}")
+                    return self._get_fallback_comparison_table()
+                
+                product, score_data = item
+                if not isinstance(product, dict):
+                    log.error(f"CRITICAL: product at index {i} is not a dict: {type(product)}")
+                    return self._get_fallback_comparison_table()
+                
+                if not isinstance(score_data, dict):
+                    log.error(f"CRITICAL: score_data at index {i} is not a dict: {type(score_data)}")
+                    return self._get_fallback_comparison_table()
+            
+            comparison = {
+                'headers': ['Feature'] + [f'Option {i+1}' for i in range(len(selected_products))],
+                'key_differences': [],
+                'strengths': {},  # Which product excels in what
+                'trade_offs': [],  # What user gains/loses with each choice
+                'summary': "",
+                'priority_features': [],  # R4.2: Most important features first
+                'user_focused_insights': []  # R4.2: Insights based on user query
+            }
+            
+            # R4.2: Smart feature prioritization based on user intent
+            comparison_features = self._prioritize_features_for_user(user_features)
+            comparison['priority_features'] = comparison_features[:5]  # Top 5 features
+            
+            for feature in comparison_features:
+                values = []
+                user_preference = user_features.get(feature, "Not specified")
+                
+                # Get feature values for each product
+                for i, (product, score_data) in enumerate(selected_products):
+                    value = self._get_product_feature_value(product, feature, score_data)
+                    values.append(value)
+                
+                # Only show if products differ or user specified this feature
+                if len(set(values)) > 1 or feature in user_features:
+                    comparison['key_differences'].append({
+                        'feature': feature.replace('_', ' ').title(),
+                        'values': values,
+                        'user_preference': user_preference,
+                        'highlight_best': self._identify_best_value(feature, values, user_preference)
+                    })
+            
+            # Identify product strengths
+            comparison['strengths'] = self._identify_product_strengths(selected_products)
+            
+            # Generate trade-offs analysis
+            comparison['trade_offs'] = self._analyze_trade_offs(selected_products, user_features)
+            
+            # Create summary
+            comparison['summary'] = self._create_comparison_summary(selected_products, comparison)
+            
+            # CRITICAL FIX: Final validation before returning
+            if not isinstance(comparison, dict):
+                log.error(f"CRITICAL: comparison is not a dict before return: {type(comparison)}")
+                return self._get_fallback_comparison_table()
+            
+            # Ensure all required keys exist with correct types
+            required_keys = ['headers', 'key_differences', 'strengths', 'trade_offs', 'summary']
+            for key in required_keys:
+                if key not in comparison:
+                    log.error(f"CRITICAL: Missing required key '{key}' in comparison table")
+                    return self._get_fallback_comparison_table()
+            
+            log.info(f"✅ COMPARISON_TABLE: Successfully generated comparison table with {len(selected_products)} products")
+            return comparison
         
-        # Identify product strengths
-        comparison['strengths'] = self._identify_product_strengths(selected_products)
-        
-        # Generate trade-offs analysis
-        comparison['trade_offs'] = self._analyze_trade_offs(selected_products, user_features)
-        
-        # Create summary
-        comparison['summary'] = self._create_comparison_summary(selected_products, comparison)
-        
-        return comparison
+        except Exception as e:
+            log.error(f"CRITICAL ERROR in _generate_comparison_table: {str(e)}")
+            log.error(f"CRITICAL ERROR traceback: {traceback.format_exc()}")
+            return self._get_fallback_comparison_table()
 
     def _get_product_feature_value(self, product: Dict, feature: str, score_data: Dict) -> str:
         """Get formatted feature value for display in comparison table."""
         
         if feature == "price":
-            price = product.get("price")
-            if price is not None and isinstance(price, (int, float)) and price > 0:
+            price_raw = product.get("price")
+            try:
+                price = float(price_raw) if price_raw else 0
+            except (ValueError, TypeError):
+                price = 0
+
+            if price > 0:
                 price_rs = price/100 if price > 10000 else price
                 return f"₹{price_rs:,.0f}"
             return "Price updating"
@@ -552,8 +681,13 @@ class MultiCardSelector:
                 product_strengths.append("High overall match")
             
             # Price positioning
-            price = product.get("price")
-            if price is not None and isinstance(price, (int, float)) and price > 0:
+            price_raw = product.get("price")
+            try:
+                price = float(price_raw) if price_raw else 0
+            except (ValueError, TypeError):
+                price = 0
+
+            if price > 0:
                 price_rs = price/100 if price > 10000 else price
                 if price_rs < 20000:
                     product_strengths.append("Budget-friendly")
@@ -575,8 +709,13 @@ class MultiCardSelector:
         prices = []
         scores = []
         for product, score_data in selected_products:
-            price = product.get("price")
-            if price is not None and isinstance(price, (int, float)) and price > 0:
+            price_raw = product.get("price")
+            try:
+                price = float(price_raw) if price_raw else 0
+            except (ValueError, TypeError):
+                price = 0
+
+            if price > 0:
                 price_rs = price/100 if price > 10000 else price
                 prices.append(price_rs)
                 scores.append(score_data["score"])
@@ -692,8 +831,13 @@ class MultiCardSelector:
         # Check for price diversity
         prices = []
         for p, _ in selected_products:
-            price = p.get("price")
-            if price is not None and isinstance(price, (int, float)) and price > 0:
+            price_raw = p.get("price")
+            try:
+                price = float(price_raw) if price_raw else 0
+            except (ValueError, TypeError):
+                price = 0
+
+            if price > 0:
                 price_rs = price/100 if price > 10000 else price
                 prices.append(price_rs)
         if len(prices) > 1:

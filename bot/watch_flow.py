@@ -112,6 +112,7 @@ async def _perform_search(keywords: str, item_count: int, priority: str, min_pri
         priority=priority,
         min_price=min_price,
         max_price=max_price
+        # enable_ai_analysis defaults to ENABLE_AI_ANALYSIS=True via factory
     )
 
 
@@ -708,25 +709,37 @@ async def smart_product_selection_with_ai(
             else:
                 log.info(f"   ⚠️ FALLBACK: Single card selected instead")
 
+            # DEBUG: Check multi-card result before returning
+            if result.get('products'):
+                log.info(f"DEBUG: smart_product_selection_with_ai returning multi_card with {len(result['products'])} products")
+                first_prod = result['products'][0]
+                log.info(f"DEBUG: First product type: {type(first_prod)}")
+                log.info(f"DEBUG: First product keys: {list(first_prod.keys()) if isinstance(first_prod, dict) else 'Not a dict'}")
+
             return result
-        
+
         else:
             # Use single-card selection (existing logic) with R7 rollout management
             log.info(f"Using single-card selection (enhanced_carousel={enhanced_carousel_enabled})")
-            
+
             # R7: Pass user_id for rollout decisions in smart_product_selection
             user_preferences_with_id = dict(user_preferences)
             user_preferences_with_id["user_id"] = user_id
-            
+
             selected_product = await smart_product_selection(products, user_query, **user_preferences_with_id)
-            
-            return {
+
+            single_result = {
                 "selection_type": "single_card",
                 "products": [selected_product] if selected_product else [],
                 "presentation_mode": "single",
                 "ai_message": "🎯 AI found your best match!" if selected_product and selected_product.get("_ai_metadata") else "⭐ Popular choice selected",
                 "metadata": selected_product.get("_ai_metadata", {}) if selected_product else {}
             }
+
+            # DEBUG: Check single card result
+            log.info(f"DEBUG: smart_product_selection_with_ai returning single_card with {len(single_result.get('products', []))} products")
+
+            return single_result
             
     except Exception as e:
         log.error(f"smart_product_selection_with_ai failed: {e}")
@@ -761,15 +774,48 @@ async def send_multi_card_experience(
     from sqlmodel import Session, select
     
     try:
+        # DEBUG: Check selection_result structure
+        log.info(f"DEBUG: send_multi_card_experience - selection_result keys: {list(selection_result.keys()) if isinstance(selection_result, dict) else 'Not a dict'}")
+        log.info(f"DEBUG: send_multi_card_experience - selection_result type: {type(selection_result)}")
+
         products = selection_result.get("products", [])
         comparison_table = selection_result.get("comparison_table", {})
         selection_reason = selection_result.get("selection_reason", "AI found multiple great options")
-        
+
+        # DEBUG: Check what send_multi_card_experience received
+        log.info(f"DEBUG: send_multi_card_experience received {len(products)} products")
+        if products:
+            log.info(f"DEBUG: send_multi_card_experience first product type: {type(products[0])}")
+            if isinstance(products[0], dict):
+                log.info(f"DEBUG: send_multi_card_experience first product keys: {list(products[0].keys())}")
+                log.info(f"DEBUG: send_multi_card_experience first product asin: {products[0].get('asin', 'No asin')}")
+            elif isinstance(products[0], list):
+                log.info(f"DEBUG: send_multi_card_experience first product is a LIST with {len(products[0])} items")
+                log.info(f"DEBUG: send_multi_card_experience first item of list: {products[0][0] if products[0] else 'Empty list'}")
+            else:
+                log.info(f"DEBUG: send_multi_card_experience first product is neither dict nor list: {type(products[0])}")
+
         if not products:
             log.warning("No products for multi-card experience, falling back to single card")
             await send_single_card_experience(update, context, selection_result, watch_data)
             return
-        
+
+        # FIX: Handle corrupted data structure - check ALL products, not just the first one
+        if products:
+            corrupted_items = [i for i, product in enumerate(products) if isinstance(product, list)]
+            if corrupted_items:
+                log.error(f"CRITICAL: Products data structure corrupted - found {len(corrupted_items)} list items in products: {corrupted_items}")
+                log.error(f"Raw products data: {products}")
+                # Emergency fallback to single card
+                await send_single_card_experience(update, context, selection_result, watch_data)
+                return
+
+        # DEBUG: Check products again before accessing
+        log.info(f"DEBUG: About to access products[0] - products length: {len(products)}")
+        if products:
+            log.info(f"DEBUG: products[0] type before access: {type(products[0])}")
+            log.info(f"DEBUG: products[0] content before access: {products[0]}")
+
         # Create watch record for the first (best) product
         user_id = update.effective_user.id
         best_product = products[0]
@@ -818,20 +864,57 @@ async def send_multi_card_experience(
             parse_mode="Markdown"
         )
         
+        # CRITICAL DEBUG: Check carousel_cards structure right before loop
+        log.info(f"DEBUG: About to iterate carousel_cards - length: {len(carousel_cards)}")
+        for i, card in enumerate(carousel_cards):
+            log.info(f"DEBUG: Processing card {i} - type: {type(card)}")
+            if not isinstance(card, dict):
+                log.error(f"CRITICAL: Card {i} is not a dict: type={type(card)}, content={card}")
+                continue  # Skip corrupted cards
+                
         # Send product cards
-        for card in carousel_cards:
-            if card.get("type") == "product_card":
-                await update.effective_chat.send_photo(
-                    photo=card["image"],
-                    caption=card["caption"],
-                    reply_markup=card.get("keyboard"),
-                    parse_mode="Markdown"
-                )
-            elif card.get("type") == "summary_card":
-                await update.effective_chat.send_message(
-                    text=card["caption"],
-                    parse_mode="Markdown"
-                )
+        for i, card in enumerate(carousel_cards):
+            try:
+                # CRITICAL FIX: Validate card structure before accessing
+                if not isinstance(card, dict):
+                    log.error(f"CRITICAL: Skipping corrupted card {i}: type={type(card)}")
+                    continue
+                    
+                if card.get("type") == "product_card":
+                    image_url = card.get("image", "")
+                    log.info(f"Sending card {i+1}: image_url={image_url[:100]}...")
+
+                    if image_url and image_url.startswith("http"):
+                        await update.effective_chat.send_photo(
+                            photo=image_url,
+                            caption=card["caption"],
+                            reply_markup=card.get("keyboard"),
+                            parse_mode="Markdown"
+                        )
+                    else:
+                        log.warning(f"No valid image URL for card {i+1}, sending text only")
+                        await update.effective_chat.send_message(
+                            text=card["caption"],
+                            reply_markup=card.get("keyboard"),
+                            parse_mode="Markdown"
+                        )
+                elif card.get("type") == "summary_card":
+                    await update.effective_chat.send_message(
+                        text=card["caption"],
+                        parse_mode="Markdown"
+                    )
+            except Exception as card_error:
+                log.error(f"Failed to send card {i+1}: {card_error}")
+                # Try to send text-only version
+                try:
+                    await update.effective_chat.send_message(
+                        text=f"Card {i+1} (image failed to load):\n\n{card['caption']}",
+                        reply_markup=card.get("keyboard"),
+                        parse_mode="Markdown"
+                    )
+                except Exception as fallback_error:
+                    log.error(f"Fallback also failed: {fallback_error}")
+                    continue
         
         # Log multi-card experience
         from .ai_performance_monitor import log_ai_selection
@@ -1050,7 +1133,7 @@ Selected based on customer ratings and popularity.
         
         # Log single-card experience
         from .ai_performance_monitor import log_ai_selection
-        model_name = ai_metadata.get("model_name", "PopularityModel")
+        model_name = ai_metadata.get("model_name", "EnhancedFeatureMatchModel")
         log_ai_selection(
             model_name=model_name,
             user_query=watch_data["keywords"],

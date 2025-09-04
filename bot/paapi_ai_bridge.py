@@ -508,6 +508,11 @@ async def search_products_with_ai_analysis(
         cached_data, cache_time = _ai_search_cache[cache_key]
         if current_time - cache_time < _ai_cache_ttl:
             log.info(f"📋 AI search cache hit for: '{keywords}'")
+            # Clean up call signature from stack before returning cached result
+            async with _ai_recursion_lock:
+                if call_signature in _ai_search_call_stack:
+                    _ai_search_call_stack.remove(call_signature)
+                    log.debug(f"🧹 AI SEARCH CACHE CLEANUP: Removed {call_signature} from call stack")
             return cached_data
         else:
             # Remove expired cache entry
@@ -542,25 +547,58 @@ async def search_products_with_ai_analysis(
         log.info("   min_price=%s", min_price)
         log.info("   max_price=%s", max_price)
 
-        search_results = await paapi_client.search_items_advanced(
+        # FIXED: Use lower-level API call to prevent recursion
+        # Instead of calling search_items_advanced (which would call this function again),
+        # call the PA-API SDK directly
+        from paapi5_python_sdk.models.search_items_request import SearchItemsRequest
+        from paapi5_python_sdk.models.partner_type import PartnerType
+        from paapi5_python_sdk.models.condition import Condition
+
+        # Get the official SDK client from paapi_client
+        api_client = paapi_client.api if hasattr(paapi_client, 'api') else paapi_client
+
+        # Create SearchItemsRequest directly (avoiding recursion)
+        search_request = SearchItemsRequest(
+            partner_tag=settings.PAAPI_TAG,
+            partner_type=PartnerType.ASSOCIATES,
+            marketplace=settings.PAAPI_MARKETPLACE,
             keywords=keywords,
             search_index=search_index,
-            item_count=item_count,
-            priority=priority,
-            min_price=min_price,
-            max_price=max_price,
-            enable_ai_analysis=False  # CRITICAL: Prevent recursion by disabling AI in nested calls
+            condition=Condition.NEW,
+            item_count=min(item_count, 10),  # PA-API limit per request
+            item_page=1,  # Start with page 1
+            resources=AI_SEARCH_RESOURCES
         )
-        log.info(f"🔍 AI SEARCH DEBUG: search_items_advanced returned {len(search_results) if search_results else 0} results")
+
+        # Add price filters if provided
+        if min_price is not None:
+            search_request.min_price = min_price
+        if max_price is not None:
+            search_request.max_price = max_price
+
+        # Execute the API call directly (no recursion)
+        response = api_client.search_items(search_request)
+        search_results = response.search_result.items if hasattr(response, 'search_result') and response.search_result else []
+        log.info(f"🔍 AI SEARCH DEBUG: Direct PA-API call returned {len(search_results) if search_results else 0} results")
 
         # Transform PA-API results to AI-compatible format
         log.debug("🔍 AI SEARCH DEBUG: Starting result transformation...")
         ai_products = []
         for i, result in enumerate(search_results):
             try:
-                log.debug(f"🔍 AI SEARCH DEBUG: Transforming result {i+1}/{len(search_results)}: {result.get('asin', 'unknown')}")
-                # Convert result to mock PA-API format for transformation
-                mock_item = create_mock_paapi_item_from_result(result)
+                # Handle PA-API SDK Item objects vs dictionaries
+                if hasattr(result, 'asin'):  # PA-API SDK Item object
+                    asin = getattr(result, 'asin', 'unknown')
+                    log.debug(f"🔍 AI SEARCH DEBUG: Transforming PA-API Item {i+1}/{len(search_results)}: {asin}")
+
+                    # Convert PA-API Item to dictionary for transformation
+                    item_dict = paapi_item_to_dict(result)
+                    mock_item = create_mock_paapi_item_from_result(item_dict)
+                else:  # Dictionary format
+                    asin = result.get('asin', 'unknown')
+                    log.debug(f"🔍 AI SEARCH DEBUG: Transforming dict result {i+1}/{len(search_results)}: {asin}")
+                    mock_item = create_mock_paapi_item_from_result(result)
+
                 ai_product = await transform_paapi_to_ai_format(mock_item)
                 ai_products.append(ai_product)
                 log.debug(f"🔍 AI SEARCH DEBUG: Successfully transformed result {i+1}")
@@ -640,35 +678,105 @@ async def execute_search_request(
 ) -> Any:
     """Execute PA-API SearchItems request with proper error handling."""
     try:
-        # Use the existing search functionality from paapi_official.py
-        search_results = await paapi_client.search_items_advanced(
+        # FIXED: Use direct PA-API call to avoid recursion
+        from paapi5_python_sdk.models.search_items_request import SearchItemsRequest
+        from paapi5_python_sdk.models.partner_type import PartnerType
+        from paapi5_python_sdk.models.condition import Condition
+        from .config import settings
+
+        # Get the official SDK client
+        api_client = paapi_client.api if hasattr(paapi_client, 'api') else paapi_client
+
+        # Create SearchItemsRequest directly
+        search_request = SearchItemsRequest(
+            partner_tag=settings.PAAPI_TAG,
+            partner_type=PartnerType.ASSOCIATES,
+            marketplace=settings.PAAPI_MARKETPLACE,
             keywords=keywords,
             search_index=search_index,
-            item_count=item_count,
-            priority="normal"
+            condition=Condition.NEW,
+            item_count=min(item_count, 10),  # PA-API limit
+            item_page=1,
+            resources=resources
         )
-        
-        # For now, return a mock response structure that matches what we expect
-        # In a real implementation, this would be the actual PA-API response
-        class MockSearchResponse:
-            def __init__(self, items):
-                self.search_result = MockSearchResult(items)
-        
-        class MockSearchResult:
-            def __init__(self, items):
-                self.items = items
-        
-        # Convert the search results back to mock PA-API format for transformation
-        mock_items = []
-        for result in search_results:
-            mock_item = create_mock_paapi_item_from_result(result)
-            mock_items.append(mock_item)
-        
-        return MockSearchResponse(mock_items)
+
+        # Execute the API call directly
+        response = api_client.search_items(search_request)
+
+        # Extract items from the response
+        if hasattr(response, 'search_result') and response.search_result:
+            search_results = response.search_result.items
+        else:
+            search_results = []
+
+        # Return the items directly
+        return search_results
         
     except Exception as e:
         log.error(f"PA-API search request failed: {e}")
         raise
+
+
+def paapi_item_to_dict(item) -> Dict[str, Any]:
+    """Convert PA-API SDK Item object to dictionary format for transformation."""
+    try:
+        item_dict = {}
+
+        # Basic item info
+        item_dict['asin'] = getattr(item, 'asin', '')
+
+        # Title
+        if hasattr(item, 'item_info') and item.item_info:
+            if hasattr(item.item_info, 'title') and item.item_info.title:
+                item_dict['title'] = getattr(item.item_info.title, 'display_value', '')
+
+        # Price information
+        if hasattr(item, 'offers') and item.offers:
+            if hasattr(item.offers, 'listings') and item.offers.listings:
+                for listing in item.offers.listings:
+                    if hasattr(listing, 'price') and listing.price:
+                        if hasattr(listing.price, 'amount'):
+                            amount = getattr(listing.price, 'amount', 0)
+                            if amount:
+                                # Convert to paise for consistency
+                                item_dict['price'] = int(float(amount) * 100)
+                        break  # Use first valid price
+
+        # Images
+        if hasattr(item, 'images') and item.images:
+            if hasattr(item.images, 'primary') and item.images.primary:
+                if hasattr(item.images.primary, 'large') and item.images.primary.large:
+                    item_dict['image_url'] = getattr(item.images.primary.large, 'url', '')
+                elif hasattr(item.images.primary, 'medium') and item.images.primary.medium:
+                    item_dict['image_url'] = getattr(item.images.primary.medium, 'url', '')
+
+        # Brand
+        if hasattr(item, 'item_info') and item.item_info:
+            if hasattr(item.item_info, 'by_line_info') and item.item_info.by_line_info:
+                if hasattr(item.item_info.by_line_info, 'brand') and item.item_info.by_line_info.brand:
+                    item_dict['brand'] = getattr(item.item_info.by_line_info.brand, 'display_value', '')
+
+        # Features/Bullet points
+        if hasattr(item, 'item_info') and item.item_info:
+            if hasattr(item.item_info, 'features') and item.item_info.features:
+                if hasattr(item.item_info.features, 'display_values'):
+                    item_dict['features'] = item.item_info.features.display_values or []
+
+        # Rating
+        if hasattr(item, 'customer_reviews') and item.customer_reviews:
+            if hasattr(item.customer_reviews, 'star_rating') and item.customer_reviews.star_rating:
+                item_dict['rating'] = getattr(item.customer_reviews.star_rating, 'display_value', '')
+
+        # Review count
+        if hasattr(item, 'customer_reviews') and item.customer_reviews:
+            if hasattr(item.customer_reviews, 'count'):
+                item_dict['review_count'] = getattr(item.customer_reviews, 'count', 0)
+
+        return item_dict
+
+    except Exception as e:
+        log.warning(f"Failed to convert PA-API Item to dict: {e}")
+        return {'asin': getattr(item, 'asin', 'unknown'), 'title': 'Unknown Product'}
 
 
 def create_mock_paapi_item_from_result(result: Dict) -> Any:

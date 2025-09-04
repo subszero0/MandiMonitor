@@ -635,21 +635,36 @@ class FeatureMatchingEngine:
         popularity = 0.0
         
         # Rating count (more reviews = more popular)
-        rating_count = product.get("rating_count", 0)
-        if isinstance(rating_count, (int, float)) and rating_count > 0:
+        rating_count_raw = product.get("rating_count", 0)
+        try:
+            rating_count = float(rating_count_raw) if rating_count_raw else 0
+        except (ValueError, TypeError):
+            rating_count = 0
+
+        if rating_count > 0:
             # Logarithmic scaling for rating count (diminishing returns)
             import math
             popularity += min(0.4, math.log10(rating_count + 1) / 4)
-        
+
         # Average rating (higher rating = better)
-        avg_rating = product.get("average_rating", 0)
-        if isinstance(avg_rating, (int, float)) and avg_rating > 0:
+        avg_rating_raw = product.get("average_rating", 0)
+        try:
+            avg_rating = float(avg_rating_raw) if avg_rating_raw else 0
+        except (ValueError, TypeError):
+            avg_rating = 0
+
+        if avg_rating > 0:
             # Normalize to 0-0.3 scale (4.5+ stars get full score)
             popularity += min(0.3, (avg_rating - 3.0) / 2.0 * 0.3)
         
         # Sales rank (lower rank = more popular)
-        sales_rank = product.get("sales_rank")
-        if isinstance(sales_rank, (int, float)) and sales_rank > 0:
+        sales_rank_raw = product.get("sales_rank")
+        try:
+            sales_rank = float(sales_rank_raw) if sales_rank_raw else 0
+        except (ValueError, TypeError):
+            sales_rank = 0
+
+        if sales_rank > 0:
             # Inverse logarithmic scaling (rank 1 = 0.3, rank 10000 = ~0.1)
             import math
             popularity += max(0.0, 0.3 - math.log10(sales_rank) / 4 * 0.2)
@@ -672,10 +687,10 @@ class FeatureMatchingEngine:
         price_match = re.search(r'[\d,]+\.?\d*', price_str.replace(',', ''))
         if not price_match:
             return 0.5
-        
+
         try:
             price_value = float(price_match.group())
-        except ValueError:
+        except (ValueError, TypeError):
             return 0.5
         
         # Gaming monitor price tiers (adjust for other categories)
@@ -715,7 +730,7 @@ class FeatureMatchingEngine:
         user_features: Dict[str, Any],
         products: List[Dict[str, Any]],
         category: str = "gaming_monitor",
-        max_cards: int = 3
+        max_cards: int = 5  # FORCED: Always show top 5 products by default
     ) -> Dict[str, Any]:
         """
         Select products for multi-card carousel with comparison features.
@@ -753,12 +768,23 @@ class FeatureMatchingEngine:
         from .multi_card_selector import MultiCardSelector
         selector = MultiCardSelector()
         
+        # FORCED MULTI-CARD: Always use 5 cards for search queries
+        forced_max_cards = 5
+        log.info(f"🎯 FORCED MULTI-CARD: Using {forced_max_cards} cards instead of {max_cards}")
+
         result = await selector.select_products_for_comparison(
             scored_products=scored_products,
             user_features=user_features,
-            max_cards=max_cards
+            max_cards=forced_max_cards
         )
-        
+
+        # DEBUG: Check what matching_engine received from MultiCardSelector
+        if result and result.get('products'):
+            log.info(f"DEBUG: matching_engine received result with {len(result['products'])} products")
+            first_prod = result['products'][0]
+            log.info(f"DEBUG: First product from selector type: {type(first_prod)}")
+            log.info(f"DEBUG: First product from selector keys: {list(first_prod.keys()) if isinstance(first_prod, dict) else 'Not a dict'}")
+
         return result
     
     def _calculate_product_quality_score(self, product_features: Dict[str, Any], category: str) -> float:
@@ -931,7 +957,13 @@ class FeatureMatchingEngine:
         total_weight += performance_components['refresh_rate']
 
         # Response time scoring (gaming critical)
-        response_time = product_features.get("response_time", 10)  # Default 10ms
+        # Safely extract and convert response_time to numeric
+        response_time_raw = product_features.get("response_time", 10)  # Default 10ms
+        try:
+            response_time = float(response_time_raw) if response_time_raw else 10
+        except (ValueError, TypeError):
+            response_time = 10
+
         if response_time <= 1: response_score = 1.0
         elif response_time <= 2: response_score = 0.9
         elif response_time <= 4: response_score = 0.8
@@ -1019,8 +1051,19 @@ class FeatureMatchingEngine:
         total_weight = 0.0
 
         # Value ratio scoring
-        price = product_features.get("price", 0)
-        size = product_features.get("size", 0)
+        # Safely extract and convert price and size to numeric
+        price_raw = product_features.get("price", 0)
+        try:
+            price = float(price_raw) if price_raw else 0
+        except (ValueError, TypeError):
+            price = 0
+
+        size_raw = product_features.get("size", 0)
+        try:
+            size = float(size_raw) if size_raw else 0
+        except (ValueError, TypeError):
+            size = 0
+
         if price and size:
             price_per_inch = price / size
             if price_per_inch < 1500: value_score = 0.9  # Excellent value
@@ -1178,7 +1221,13 @@ class FeatureMatchingEngine:
             return 0.5
 
         resolution = safe_string_extract(resolution).lower()
-        size = user_requirements.get('size', 0)
+        # Safely extract and convert size to numeric
+        size_raw = user_requirements.get('size', 0)
+        try:
+            size = float(size_raw) if size_raw else 0
+        except (ValueError, TypeError):
+            size = 0
+
         usage_context = safe_string_extract(user_requirements.get('usage_context', '')).lower()
 
         # 4K quality assessment
