@@ -556,49 +556,13 @@ async def smart_product_selection(
         # Log primary failure
         log_ai_fallback(
             primary_model=model_name,
-            fallback_model="PopularityModel",
+            fallback_model="EnhancedFeatureMatchModel",
             reason=str(e)
         )
     
-    # R5.1: Fallback to Popularity if primary was AI
-    if hasattr(primary_model, 'model_name') and primary_model.model_name == "FeatureMatchModel":
-        try:
-            log.info("FALLBACK_ATTEMPT: Trying PopularityModel after AI failure")
-            popularity_model = PopularityModel()
-            result = await popularity_model.select_product(products, user_query, **kwargs)
-            
-            if result:
-                # R5.1: Log successful fallback
-                processing_time = (time.time() - start_time) * 1000
-                
-                selection_metadata = {
-                    "processing_time_ms": processing_time,
-                    "model_name": "PopularityModel",
-                    "is_fallback": True,
-                    "primary_failed": model_name,
-                    **result.get("_popularity_metadata", {})
-                }
-                
-                log_ai_selection(
-                    model_name="PopularityModel",
-                    user_query=user_query,
-                    product_count=product_count,
-                    selection_metadata=selection_metadata,
-                    success=True
-                )
-                
-                log.info(f"FALLBACK_SUCCESS: PopularityModel selected product {result.get('asin', 'unknown')} in {processing_time:.1f}ms")
-                return result
-                
-        except Exception as e:
-            log.warning(f"FALLBACK_FAILURE: PopularityModel failed: {e}")
-            
-            # R5.1: Log fallback failure
-            log_ai_fallback(
-                primary_model="PopularityModel",
-                fallback_model="RandomSelectionModel",
-                reason=f"PopularityModel failed: {e}"
-            )
+    # CRITICAL FIX: COMPLETELY DISABLE PopularityModel fallback
+    # Force multi-card experience by never falling back to PopularityModel
+    log.info("FALLBACK_DISABLED: PopularityModel fallback disabled - forcing multi-card experience")
     
     # R5.1: Final fallback to Random with monitoring
     try:

@@ -187,19 +187,94 @@ class EnhancedFeatureMatchModel:
             processing_time_ms=carousel_result['ai_metadata']['processing_time_ms']
         )
         
+        # DEBUG: Check carousel_result structure
+        log.info(f"DEBUG: EnhancedFeatureMatchModel received carousel_result with {len(carousel_result.get('products', []))} products")
+        products_from_carousel = carousel_result.get('products', [])
+        if products_from_carousel:
+            log.info(f"DEBUG: First product from carousel type: {type(products_from_carousel[0])}")
+            log.info(f"DEBUG: First product from carousel keys: {list(products_from_carousel[0].keys()) if isinstance(products_from_carousel[0], dict) else 'Not a dict'}")
+
+        # CRITICAL FIX: Validate carousel_result structure
+        if not isinstance(carousel_result, dict):
+            log.error(f"CRITICAL: carousel_result is not a dict: {type(carousel_result)}")
+            # Fallback to single card
+            best_product = products[0]
+            best_score = {"score": 0, "confidence": 0, "rationale": "Data validation failure"}
+            return self._create_single_card_result(best_product, best_score, user_query, user_features, metadata)
+        
+        carousel_products = carousel_result.get('products', [])
+        carousel_comparison_table = carousel_result.get('comparison_table', {})
+        
+        # Validate products structure
+        if not isinstance(carousel_products, list):
+            log.error(f"CRITICAL: carousel_result['products'] is not a list: {type(carousel_products)}")
+            best_product = products[0]
+            best_score = {"score": 0, "confidence": 0, "rationale": "Data validation failure"}
+            return self._create_single_card_result(best_product, best_score, user_query, user_features, metadata)
+        
+        # Validate comparison_table structure
+        if not isinstance(carousel_comparison_table, dict):
+            log.error(f"CRITICAL: carousel_result['comparison_table'] is not a dict: {type(carousel_comparison_table)}")
+            # Force creation of proper comparison table
+            carousel_comparison_table = {
+                'headers': ['Feature', 'Product'],
+                'key_differences': [],
+                'strengths': {},
+                'trade_offs': [],
+                'summary': "Comparison data corrected due to validation failure"
+            }
+        
+        # Validate each product in the list
+        for i, product in enumerate(carousel_products):
+            if not isinstance(product, dict):
+                log.error(f"CRITICAL: carousel_products[{i}] is not a dict: {type(product)}")
+                # Fallback to single card
+                best_product = products[0]
+                best_score = {"score": 0, "confidence": 0, "rationale": "Data validation failure"}
+                return self._create_single_card_result(best_product, best_score, user_query, user_features, metadata)
+        
+        log.info(f"✅ VALIDATION: carousel_result structure validated successfully - {len(carousel_products)} products, comparison_table is dict")
+
         return {
             'selection_type': 'multi_card',
-            'products': carousel_result['products'],
-            'comparison_table': carousel_result['comparison_table'],
-            'presentation_mode': carousel_result['presentation_mode'],
+            'products': carousel_products,
+            'comparison_table': carousel_comparison_table,
+            'presentation_mode': carousel_result.get('presentation_mode', 'multi'),
             'ai_message': ai_message,
-            'selection_reason': carousel_result['selection_reason'],
+            'selection_reason': carousel_result.get('selection_reason', 'Multi-card comparison'),
             'metadata': {
-                **carousel_result['ai_metadata'],
+                **carousel_result.get('ai_metadata', {}),
                 **metadata,
                 'user_features': len([k for k in user_features.keys() if k not in ['confidence', 'processing_time_ms']]),
                 'model_used': 'EnhancedFeatureMatchModel',
-                'multi_card_enabled': True
+                'model_name': 'EnhancedFeatureMatchModel',
+                'multi_card_enabled': True,
+                'validation_passed': True
+            }
+        }
+
+    def _create_single_card_result(self, best_product: Dict, best_score: Dict, user_query: str, user_features: Dict, metadata: Dict) -> Dict:
+        """Create a single card result with proper structure."""
+        ai_message = f"🎯 **AI Analysis Complete**\\n\\nFor your search: *{user_query}*\\n\\nFound 1 excellent match based on your requirements."
+        
+        return {
+            'selection_type': 'single_card',
+            'products': [best_product],
+            'comparison_table': {"summary": "Single best option - no comparison needed"},
+            'presentation_mode': 'single',
+            'ai_message': ai_message,
+            'selection_reason': best_score.get('rationale', 'Best match found'),
+            'metadata': {
+                'model_used': 'EnhancedFeatureMatchModel',
+                'model_name': 'EnhancedFeatureMatchModel',
+                'ai_score': best_score.get('score', 0),
+                'ai_confidence': best_score.get('confidence', 0),
+                'matched_features': best_score.get('matched_features', []),
+                'processing_time_ms': best_score.get('processing_time_ms', 0),
+                'selection_type': 'single_card',
+                'multi_card_enabled': False,
+                'fallback_reason': 'data_validation_failure',
+                **metadata
             }
         }
 
@@ -249,6 +324,7 @@ class EnhancedFeatureMatchModel:
             'selection_reason': best_score['rationale'],
             'metadata': {
                 'model_used': 'EnhancedFeatureMatchModel',
+                'model_name': 'EnhancedFeatureMatchModel',  # FIX: Ensure model_name is set
                 'ai_score': best_score['score'],
                 'ai_confidence': best_score['confidence'],
                 'matched_features': best_score['matched_features'],
@@ -270,9 +346,21 @@ class EnhancedFeatureMatchModel:
         # Simple popularity selection (highest rating count * average rating)
         scored_products = []
         for product in products:
-            rating_count = product.get("rating_count", 0)
-            avg_rating = product.get("average_rating", 0)
-            popularity_score = rating_count * avg_rating if rating_count and avg_rating else 0
+            # Safely extract and convert rating_count to numeric
+            rating_count_raw = product.get("rating_count", 0)
+            try:
+                rating_count = float(rating_count_raw) if rating_count_raw else 0
+            except (ValueError, TypeError):
+                rating_count = 0
+
+            # Safely extract and convert avg_rating to numeric
+            avg_rating_raw = product.get("average_rating", 0)
+            try:
+                avg_rating = float(avg_rating_raw) if avg_rating_raw else 0
+            except (ValueError, TypeError):
+                avg_rating = 0
+
+            popularity_score = rating_count * avg_rating if rating_count > 0 and avg_rating > 0 else 0
             scored_products.append((product, popularity_score))
         
         # Sort by popularity score
@@ -293,6 +381,7 @@ class EnhancedFeatureMatchModel:
             'selection_reason': f"Fallback to popularity: {reason}",
             'metadata': {
                 'model_used': 'PopularityFallback',
+                'model_name': 'PopularityFallback',  # FIX: Ensure model_name is set
                 'fallback_reason': reason,
                 'processing_time_ms': 0,
                 'selection_type': 'popularity_fallback'
@@ -389,7 +478,13 @@ def generate_user_explanations(score_breakdown: Dict[str, Any], product_features
         elif "1440p" in resolution:
             explanations.append("🎯 High-quality QHD resolution for excellent clarity")
 
-        size = product_features.get("size", 0)
+        # Safely extract and convert size to numeric
+        size_raw = product_features.get("size", 0)
+        try:
+            size = float(size_raw) if size_raw else 0
+        except (ValueError, TypeError):
+            size = 0
+
         if 27 <= size <= 35:
             explanations.append("📺 Perfect size for gaming (27-35 inches)")
 

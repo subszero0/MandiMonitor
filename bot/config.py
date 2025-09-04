@@ -1,6 +1,83 @@
 """Configuration management for MandiMonitor Bot."""
 
+import os
+from pathlib import Path
+from typing import Optional
 from pydantic_settings import BaseSettings
+
+
+class DevConfig:
+    """Development configuration with basic security."""
+
+    def __init__(self):
+        self.env = os.getenv('ENVIRONMENT', 'development')
+
+        # Load environment-specific config
+        if self.env == 'development':
+            self._load_dev_config()
+        elif self.env == 'test':
+            self._load_test_config()
+        else:
+            self._load_prod_config()
+
+    def _load_dev_config(self):
+        """Load development config with basic protection."""
+        env_file = Path('.env.dev')
+        if env_file.exists():
+            self._load_env_file(env_file)
+        else:
+            # Fallback to basic dev values
+            self.telegram_token = "dev_token_placeholder"
+            self.paapi_key = "dev_key_placeholder"
+
+    def _load_test_config(self):
+        """Load test config with basic protection."""
+        env_file = Path('.env.test')
+        if env_file.exists():
+            self._load_env_file(env_file)
+        else:
+            # Fallback to basic test values
+            self.telegram_token = "test_token_placeholder"
+            self.paapi_key = "test_key_placeholder"
+
+    def _load_prod_config(self):
+        """Load production config from main .env."""
+        env_file = Path('.env')
+        if env_file.exists():
+            self._load_env_file(env_file)
+        else:
+            raise ValueError("Production config requires .env file")
+
+    def _load_env_file(self, file_path: Path):
+        """Load environment file with basic validation."""
+        with open(file_path) as f:
+            for line in f:
+                if line.strip() and not line.startswith('#'):
+                    try:
+                        key, value = line.strip().split('=', 1)
+                        key_lower = key.lower()
+
+                        # Basic validation for sensitive keys
+                        if key in ['TELEGRAM_TOKEN', 'PAAPI_ACCESS_KEY', 'PAAPI_SECRET_KEY']:
+                            if len(value) < 10:  # Basic validation
+                                raise ValueError(f"Invalid {key} length: must be at least 10 characters")
+                            if 'placeholder' in value.lower() and self.env in ['development', 'test']:
+                                print(f"WARNING: Using placeholder value for {key} in {self.env} environment")
+                        elif key in ['ADMIN_PASS']:
+                            if len(value) < 12 and self.env == 'development':
+                                print(f"WARNING: Admin password too short for {self.env} environment")
+
+                        setattr(self, key_lower, value)
+                    except ValueError as e:
+                        print(f"Error parsing {file_path}: {e}")
+                        raise
+
+    def _validate_dev_admin_creds(self):
+        """Basic validation for dev admin credentials."""
+        if len(getattr(self, 'admin_pass', '')) < 12:
+            print("WARNING: Admin password too short for dev")
+        if getattr(self, 'admin_user', '') == 'admin':
+            print("WARNING: Using default admin username")
 
 
 class Settings(BaseSettings):
@@ -34,8 +111,41 @@ class Settings(BaseSettings):
     PAAPI_BURST_WINDOW_SECONDS: int = 10
 
 
-try:
-    settings = Settings(_env_file=".env")
-except FileNotFoundError:
-    # For CI/testing environments where .env might not exist
-    settings = Settings()
+# Initialize configuration based on environment
+env = os.getenv('ENVIRONMENT', 'development')
+
+if env in ['development', 'test']:
+    # Use DevConfig for development and test environments
+    try:
+        dev_config = DevConfig()
+        # Create a settings-like object from DevConfig for compatibility
+        class DevSettings:
+            def __init__(self, dev_config):
+                # First, get all default values from the original Settings class
+                defaults = Settings()
+                for attr in dir(defaults):
+                    if not attr.startswith('_') and not callable(getattr(defaults, attr)):
+                        setattr(self, attr, getattr(defaults, attr))
+
+                # Then override with values from DevConfig
+                for attr in dir(dev_config):
+                    if not attr.startswith('_') and hasattr(dev_config, attr):
+                        value = getattr(dev_config, attr)
+                        if value is not None:  # Only override if DevConfig has a value
+                            # Map lowercase DevConfig attributes to uppercase Settings attributes
+                            uppercase_attr = attr.upper()
+                            setattr(self, uppercase_attr, value)
+                            # Also keep the lowercase version for compatibility
+                            setattr(self, attr, value)
+
+        settings = DevSettings(dev_config)
+    except Exception as e:
+        print(f"Error loading dev config: {e}")
+        settings = Settings()  # Fallback
+else:
+    # Use production settings
+    try:
+        settings = Settings(_env_file=".env")
+    except FileNotFoundError:
+        # For CI/testing environments where .env might not exist
+        settings = Settings()

@@ -42,6 +42,7 @@ class PaapiClientProtocol(Protocol):
         sort_by=None,
         browse_node_id=None,
         priority: str = "normal",
+        enable_ai_analysis=None,
     ):
         """Search for products with advanced filtering."""
         ...
@@ -103,6 +104,7 @@ async def search_items_advanced(
     sort_by=None,
     browse_node_id=None,
     priority: str = "normal",
+    enable_ai_analysis=None,
 ):
     """Search for products using the active PA-API client."""
     client = await get_paapi_client()
@@ -122,6 +124,7 @@ async def search_items_advanced(
         sort_by=sort_by,
         browse_node_id=browse_node_id,
         priority=priority,
+        enable_ai_analysis=enable_ai_analysis,
     )
 
 
