@@ -246,7 +246,8 @@ class AISimulationEngine:
                     products=multi_card_result['products'],
                     comparison_table=comparison_table,
                     selection_reason=multi_card_result.get('selection_reason', 'AI selection'),
-                    watch_id=12345  # Mock watch ID for simulation
+                    watch_id=12345,  # Mock watch ID for simulation
+                    max_budget=None
                 )
                 logger.info(f"   ✅ Generated carousel with {len(carousel_data)} product cards")
             except Exception as e:

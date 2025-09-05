@@ -1151,11 +1151,13 @@ async def smart_product_selection_with_ai(
                                 
                                 if selection_result.get("presentation_mode") != "single":
                                     # Send multi-card carousel and skip single card logic
+                                    max_budget = watch_data.get("max_price")
                                     cards = build_product_carousel(
                                         products=selection_result["products"],
                                         comparison_table=selection_result["comparison_table"],
                                         selection_reason=selection_result["selection_reason"],
-                                        watch_id=watch.id
+                                        watch_id=watch.id,
+                                        max_budget=max_budget
                                     )
                                     
                                     # Send intro message
@@ -1651,11 +1653,13 @@ async def send_multi_card_experience(
             log.info("Created watch %d for multi-card experience", watch.id)
         
         # Build carousel cards
+        max_budget = watch_data.get("max_price")
         carousel_cards = build_product_carousel(
             products=products,
             comparison_table=comparison_table,
             selection_reason=selection_reason,
-            watch_id=watch.id
+            watch_id=watch.id,
+            max_budget=max_budget
         )
         
         # Send AI introduction message

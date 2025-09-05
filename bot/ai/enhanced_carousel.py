@@ -13,21 +13,23 @@ log = getLogger(__name__)
 
 
 def build_product_carousel(
-    products: List[Dict], 
-    comparison_table: Dict, 
+    products: List[Dict],
+    comparison_table: Dict,
     selection_reason: str,
-    watch_id: int
+    watch_id: int,
+    max_budget: Optional[int] = None
 ) -> List[Dict]:
     """
     Build carousel of product cards with comparison context for Phase 6.
-    
+
     Args:
     ----
         products: List of selected products
         comparison_table: Feature comparison data
         selection_reason: AI explanation for selection
         watch_id: Watch ID for click tracking
-        
+        max_budget: Maximum budget in rupees (optional)
+
     Returns:
     -------
         List of product cards with comparison context
@@ -82,9 +84,10 @@ def build_product_carousel(
     # Add comparison summary as final card if multiple products
     if len(products) > 1:
         summary_card = build_comparison_summary_card(
-            comparison_table=comparison_table, 
+            comparison_table=comparison_table,
             selection_reason=selection_reason,
-            product_count=len(products)
+            product_count=len(products),
+            max_budget=max_budget
         )
         
         # CRITICAL DEBUG: Validate summary card structure
@@ -147,6 +150,8 @@ def build_enhanced_card(
     title = product.get('title', 'Unknown Product')
     price = product.get('price', 0)
     asin = product.get('asin', '')
+    average_rating = product.get('average_rating')
+    rating_count = product.get('rating_count')
     
     # Format price (convert from paise to rupees if needed)
     if price and isinstance(price, (int, float)) and price > 0:
@@ -158,6 +163,28 @@ def build_enhanced_card(
     else:
         price_text = "Price updating..."
     
+    # Format rating and reviews
+    rating_text = ""
+    if average_rating and isinstance(average_rating, (int, float)) and average_rating > 0:
+        stars = "⭐" * int(round(average_rating))
+        if rating_count and isinstance(rating_count, (int, float)) and rating_count > 0:
+            if rating_count >= 1000:
+                if rating_count >= 10000:
+                    reviews_text = f"{rating_count/1000:.0f}k reviews"
+                else:
+                    reviews_text = f"{rating_count/1000:.1f}k reviews"
+            else:
+                reviews_text = f"{int(rating_count)} reviews"
+            rating_text = f"⭐ {average_rating:.1f} ({reviews_text})"
+        else:
+            rating_text = f"⭐ {average_rating:.1f}"
+    elif rating_count and isinstance(rating_count, (int, float)) and rating_count > 0:
+        if rating_count >= 1000:
+            reviews_text = f"{rating_count/1000:.1f}k reviews"
+        else:
+            reviews_text = f"{int(rating_count)} reviews"
+        rating_text = f"📝 {reviews_text}"
+    
     # Build caption with position indicator for multi-card
     if total_cards > 1:
         position_emoji = ["🥇", "🥈", "🥉"][position - 1] if position <= 3 else f"#{position}"
@@ -165,7 +192,10 @@ def build_enhanced_card(
     else:
         caption = "🎯 **AI Best Match**\n\n"
     
-    caption += f"📱 {title}\n💰 {price_text}\n\n"
+    caption += f"📱 {title}\n💰 {price_text}\n"
+    if rating_text:
+        caption += f"{rating_text}\n"
+    caption += "\n"
     
     # Add AI insights and strengths
     # CRITICAL FIX: Safe access to strengths with validation
@@ -236,9 +266,10 @@ def build_enhanced_card(
 
 
 def build_comparison_summary_card(
-    comparison_table: Dict, 
+    comparison_table: Dict,
     selection_reason: str,
-    product_count: int
+    product_count: int,
+    max_budget: Optional[int] = None
 ) -> Dict:
     """
     Build optimized comparison summary card with smart formatting.
@@ -355,11 +386,29 @@ def build_comparison_summary_card(
                     prices.append(price_num)
                 except:
                     pass
-        if len(prices) >= 2:
+
+        if prices:
             min_price = min(prices)
             max_price = max(prices)
-            savings = max_price - min_price
-            caption += f"• **Budget Range**: ₹{min_price:,} - ₹{max_price:,} (₹{savings:,} difference)\n"
+
+            # Use max_budget if provided and it's higher than the selected products' max price
+            if max_budget and max_budget > max_price:
+                # Convert paise to rupees if needed
+                if max_budget > 100000:  # Likely in paise
+                    display_max_budget = max_budget // 100
+                else:
+                    display_max_budget = max_budget
+
+                # Calculate the auto-generated min price (80% of max budget)
+                auto_min_price = int(display_max_budget * 0.8)
+                
+                # Show the full search range with auto-generated min price
+                savings = display_max_budget - auto_min_price
+                caption += f"• **Budget Range**: ₹{auto_min_price:,} - ₹{display_max_budget:,} (₹{savings:,} target range)\n"
+                caption += f"• **Search Criteria**: ₹{auto_min_price:,} to ₹{display_max_budget:,} for best value\n"
+            elif len(prices) >= 2:
+                savings = max_price - min_price
+                caption += f"• **Budget Range**: ₹{min_price:,} - ₹{max_price:,} (₹{savings:,} difference)\n"
     
     # Panel technology insights
     panel_diff = next((d for d in key_diffs if 'panel' in d['feature'].lower()), None)
@@ -579,6 +628,66 @@ def build_comparison_summary_card(
     }
 
 
+def _parse_features_list(features_list: List[str]) -> Dict:
+    """Parse list of feature strings to extract technical specifications."""
+    import re
+
+    specs = {}
+
+    for feature_text in features_list:
+        if not isinstance(feature_text, str):
+            continue
+
+        text_lower = feature_text.lower()
+
+        # Extract refresh rate (Hz)
+        refresh_match = re.search(r'(\d{2,3})\s*hz', text_lower)
+        if refresh_match and 'refresh' in text_lower:
+            specs['refresh_rate'] = int(refresh_match.group(1))
+
+        # Extract response time (ms)
+        response_match = re.search(r'(\d{1,2})\s*ms', text_lower)
+        if response_match and ('response' in text_lower or 'mbr' in text_lower or 'gtg' in text_lower):
+            specs['response_time'] = int(response_match.group(1))
+
+        # Extract resolution
+        if 'qhd' in text_lower or '1440p' in text_lower:
+            specs['resolution'] = 'QHD'
+        elif '4k' in text_lower or 'uhd' in text_lower:
+            specs['resolution'] = '4K UHD'
+        elif '1080p' in text_lower or 'fhd' in text_lower:
+            specs['resolution'] = 'FHD'
+
+        # Extract panel type
+        if 'ips' in text_lower:
+            specs['panel_type'] = 'IPS'
+        elif 'va' in text_lower:
+            specs['panel_type'] = 'VA'
+        elif 'oled' in text_lower or 'amoled' in text_lower:
+            specs['panel_type'] = 'OLED'
+
+        # Extract HDR support
+        if 'hdr' in text_lower:
+            if 'hdr400' in text_lower or 'displayhdr 400' in text_lower:
+                specs['hdr_support'] = 'HDR400'
+            elif 'hdr10' in text_lower:
+                specs['hdr_support'] = 'HDR10'
+            else:
+                specs['hdr_support'] = 'HDR'
+
+        # Extract color accuracy (sRGB)
+        srgb_match = re.search(r'(\d{2,3})\s*%\s*srgb', text_lower)
+        if srgb_match:
+            specs['color_accuracy'] = int(srgb_match.group(1))
+
+        # Extract size (inches)
+        size_match = re.search(r'(\d{1,2})\s*"?\s*inch', text_lower)
+        if size_match:
+            specs['size'] = f"{size_match.group(1)}\""
+
+    return specs
+
+
 def _get_product_highlights(product: Dict, product_index: int, comparison_table: Dict) -> List[str]:
     """Get detailed technical highlights for a product with enhanced differentiation."""
     highlights = []
@@ -586,9 +695,9 @@ def _get_product_highlights(product: Dict, product_index: int, comparison_table:
     # CRITICAL FIX: Handle features as list or dict
     raw_features = product.get('features', {})
     if isinstance(raw_features, list):
-        # Features is a list of strings, create empty dict for technical features
-        product_features = {}
-        log.debug(f"_get_product_highlights: features is a list ({len(raw_features)} items), using empty dict for technical features")
+        # Features is a list of strings, parse them to extract technical details
+        product_features = _parse_features_list(raw_features)
+        log.debug(f"_get_product_highlights: parsed {len(raw_features)} feature strings into {len(product_features)} technical features")
     elif isinstance(raw_features, dict):
         product_features = raw_features
         log.debug(f"_get_product_highlights: features is a dict with {len(raw_features)} keys")

@@ -194,7 +194,8 @@ class TestEnhancedCarousel:
             products=sample_products[:1],
             comparison_table=sample_comparison_table,
             selection_reason="High AI confidence - clear best choice",
-            watch_id=12345
+            watch_id=12345,
+            max_budget=None
         )
         
         # Should have only one card (no summary for single product)
@@ -208,7 +209,8 @@ class TestEnhancedCarousel:
             products=sample_products,
             comparison_table=sample_comparison_table,
             selection_reason="Multiple competitive options",
-            watch_id=12345
+            watch_id=12345,
+            max_budget=None
         )
         
         # Should have product cards + summary card
@@ -354,7 +356,8 @@ class TestCarouselEdgeCases:
             products=[],
             comparison_table={},
             selection_reason="No products found",
-            watch_id=123
+            watch_id=123,
+            max_budget=None
         )
         
         assert cards == []
@@ -426,7 +429,8 @@ class TestCarouselEdgeCases:
             products=products,
             comparison_table=comparison_table,
             selection_reason="Many options available",
-            watch_id=123
+            watch_id=123,
+            max_budget=None
         )
         
         # Should handle all products + summary
@@ -480,7 +484,8 @@ class TestCarouselPerformance:
             products=products,
             comparison_table=comparison_table,
             selection_reason="Performance test",
-            watch_id=123
+            watch_id=123,
+            max_budget=None
         )
         
         processing_time = (time.time() - start_time) * 1000

@@ -55,6 +55,10 @@ def parse_watch(text: str) -> Dict[str, Any]:
 
             # Convert rupees to paise for PA-API
             max_price = max_price_rupees * 100
+            
+            # Automatically set min_price to 80% of max_price for better range targeting
+            min_price_rupees = int(max_price_rupees * 0.8)
+            min_price = min_price_rupees * 100
         except (ValueError, TypeError):
             max_price = None
     # Try "between X and Y" pattern

@@ -57,8 +57,8 @@ class EnhancedFeatureMatchModel:
         
         # Multi-card configuration
         self.enable_multi_card = True  # A/B testing flag
-        self.max_cards = 3
-        self.min_products_for_ai = 5
+        self.max_cards = 5  # FIXED: Show 5 cards instead of 3
+        self.min_products_for_ai = 3  # FIXED: Lowered from 5 to 3 to prevent popularity fallback
         self.min_technical_words = 3
 
     async def select_products(
@@ -165,7 +165,35 @@ class EnhancedFeatureMatchModel:
 
         # Add score range information
         if carousel_result.get('products'):
-            scores = [p.get('score', 0) for p in carousel_result['products']]
+            scores = []
+            for p in carousel_result['products']:
+                # Try different possible score fields
+                score = None
+
+                # Check for direct score field
+                if 'score' in p and p['score'] is not None:
+                    score = p['score']
+                # Check for hybrid_score
+                elif 'hybrid_score' in p and p['hybrid_score'] is not None:
+                    score = p['hybrid_score']
+                # Check for scoring_breakdown final_score
+                elif 'scoring_breakdown' in p and isinstance(p['scoring_breakdown'], dict):
+                    if 'final_score' in p['scoring_breakdown']:
+                        score = p['scoring_breakdown']['final_score']
+                # Check if we can calculate from components
+                elif 'scoring_breakdown' in p and isinstance(p['scoring_breakdown'], dict):
+                    breakdown = p['scoring_breakdown']
+                    if all(k in breakdown for k in ['technical_score', 'value_score', 'budget_score', 'excellence_score']):
+                        # Recalculate using same weights as matching_engine
+                        tech = breakdown['technical_score']
+                        value = breakdown['value_score']
+                        budget = breakdown['budget_score']
+                        excellence = breakdown['excellence_score']
+                        score = (tech * 0.45) + (value * 0.30) + (budget * 0.20) + (excellence * 0.05)
+
+                if score is not None and isinstance(score, (int, float)) and score > 0:
+                    scores.append(score)
+
             if scores:
                 min_score = min(scores)
                 max_score = max(scores)
